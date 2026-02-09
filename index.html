@@ -407,6 +407,10 @@
         <span class="shortcut-key">D</span>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="color:#475569; font-family:'Plus Jakarta Sans',sans-serif; font-size:14px;">Edit subscriptions</span>
+        <span class="shortcut-key">S</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="color:#475569; font-family:'Plus Jakarta Sans',sans-serif; font-size:14px;">Show shortcuts</span>
         <span class="shortcut-key">?</span>
       </div>
@@ -448,7 +452,8 @@
     </div>
     
     <!-- Summary Cards -->
-    <div id="v1-summary" style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px;"></div>
+    <div id="v1-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:28px;"></div>
+    <div id="v1-sub-roi" style="margin-bottom:28px;"></div>
     
     <!-- Charts Row -->
     <div style="display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:28px;">
@@ -509,7 +514,8 @@
     </div>
     
     <!-- Summary Cards -->
-    <div id="v2-summary" style="display:grid; grid-template-columns:repeat(4,1fr); gap:24px; margin-bottom:48px;"></div>
+    <div id="v2-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:24px; margin-bottom:48px;"></div>
+    <div id="v2-sub-roi" style="margin-bottom:48px;"></div>
     
     <!-- Daily Cost Chart -->
     <div class="card animate-fade-up stagger-5" style="margin-bottom:36px;">
@@ -565,7 +571,8 @@
     </div>
     
     <!-- Summary -->
-    <div id="v3-summary" style="display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--v3-border); margin-bottom:48px; border:1px solid var(--v3-border);"></div>
+    <div id="v3-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:var(--v3-border); margin-bottom:48px; border:1px solid var(--v3-border);"></div>
+    <div id="v3-sub-roi" style="margin-bottom:48px;"></div>
     
     <!-- Chart + Model side by side -->
     <div style="display:grid; grid-template-columns:3fr 1fr; gap:48px; margin-bottom:48px;">
@@ -624,7 +631,8 @@
     </div>
     
     <!-- Summary Cards -->
-    <div id="v4-summary" style="display:grid; grid-template-columns:repeat(4,1fr); gap:20px; margin-bottom:48px;"></div>
+    <div id="v4-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:20px; margin-bottom:48px;"></div>
+    <div id="v4-sub-roi" style="margin-bottom:48px;"></div>
     
     <!-- Daily chart -->
     <div class="card animate-fade-up stagger-5" style="margin-bottom:36px;">
@@ -685,7 +693,8 @@
     <div class="glow-line animate-fade-in" style="margin-bottom:32px;"></div>
     
     <!-- Summary Cards -->
-    <div id="v5-summary" style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:28px;"></div>
+    <div id="v5-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:28px;"></div>
+    <div id="v5-sub-roi" style="margin-bottom:28px;"></div>
     
     <!-- Charts -->
     <div style="display:grid; grid-template-columns:5fr 3fr; gap:16px; margin-bottom:28px;">
@@ -826,6 +835,9 @@ function generateMockData() {
   // Compute aggregates
   const totalTokens = sessions.reduce((a, s) => a + s.usage.totalTokens, 0);
   const totalCost = sessions.reduce((a, s) => a + s.usage.cost.total, 0);
+  const totalCacheRead = sessions.reduce((a, s) => a + (s.usage.cacheRead || 0), 0);
+  const totalCacheWrite = sessions.reduce((a, s) => a + (s.usage.cacheWrite || 0), 0);
+  const cacheHitRate = (totalCacheRead + totalCacheWrite) > 0 ? (totalCacheRead / (totalCacheRead + totalCacheWrite) * 100) : 0;
   const activeModels = [...new Set(sessions.map(s => s.model))];
   
   // This week vs last week
@@ -889,6 +901,9 @@ function generateMockData() {
     dailyData: dailyArray,
     totalTokens,
     totalCost,
+    totalCacheRead,
+    totalCacheWrite,
+    cacheHitRate,
     totalSessions: sessions.length,
     activeModels,
     modelStats: Object.values(modelStats).sort((a, b) => b.cost - a.cost),
@@ -916,6 +931,14 @@ let mockData = generateMockData();
 let currentData = mockData;
 let sessionSortKey = 'cost';
 let sessionSortDir = 'desc';
+
+// Subscription config (persisted to localStorage)
+const defaultSubscriptions = [
+  { name: 'Anthropic Max', cost: 200, enabled: true },
+  { name: 'OpenAI Plus', cost: 20, enabled: true },
+];
+let subscriptions = JSON.parse(localStorage.getItem('ut-subscriptions') || 'null') || defaultSubscriptions;
+let subEditMode = false;
 
 // Provider colors
 const providerColors = {
@@ -1233,6 +1256,7 @@ function renderSummaryCards(containerId, data, variant) {
     { label: 'Total Tokens', value: formatTokens(data.totalTokens), change: wow.tokenChange, icon: 'bar-chart-2' },
     { label: 'Total Cost', value: formatCost(data.totalCost), change: wow.costChange, icon: 'dollar-sign' },
     { label: 'Sessions', value: data.totalSessions.toString(), change: wow.sessionChange, icon: 'layers' },
+    { label: 'Cache Hit Rate', value: (data.cacheHitRate || 0).toFixed(1) + '%', change: null, icon: 'zap', subtitle: `${formatTokens(data.totalCacheRead || 0)} read · ${formatTokens(data.totalCacheWrite || 0)} write` },
     { label: 'Active Models', value: data.activeModels.length.toString(), change: null, icon: 'cpu' },
   ];
   
@@ -1249,6 +1273,7 @@ function renderSummaryCards(containerId, data, variant) {
           <i data-lucide="${c.icon}" style="width:16px; height:16px; color:var(--v1-accent); opacity:0.7;"></i>
         </div>
         <div style="font-size:28px; font-weight:700; color:var(--v1-text); letter-spacing:-0.5px;">${c.value}</div>
+        ${c.subtitle ? `<div style="font-size:11px; color:var(--v1-text-muted); margin-top:4px;">${c.subtitle}</div>` : ''}
         ${changeHtml}
       </div>`;
     }).join('');
@@ -1261,6 +1286,7 @@ function renderSummaryCards(containerId, data, variant) {
       return `<div class="card animate-fade-up stagger-${i+1}">
         <p style="font-family:'DM Sans',sans-serif; font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:1.5px; color:var(--v2-accent); margin:0 0 12px 0;">${c.label}</p>
         <div style="font-family:'Newsreader',serif; font-size:36px; font-weight:400; color:var(--v2-text); letter-spacing:-1px;">${c.value}</div>
+        ${c.subtitle ? `<div style="font-size:11px; color:var(--v2-text-dim); margin-top:4px;">${c.subtitle}</div>` : ''}
         ${changeHtml}
       </div>`;
     }).join('');
@@ -1273,6 +1299,7 @@ function renderSummaryCards(containerId, data, variant) {
       return `<div style="background:var(--v3-bg); padding:20px 24px;" class="animate-fade-up stagger-${i+1}">
         <div style="font-size:10px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--v3-text-dim); margin-bottom:8px;">${c.label}</div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:28px; font-weight:400; color:var(--v3-text); letter-spacing:-1px;">${c.value}</div>
+        ${c.subtitle ? `<div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--v3-text-dim); margin-top:4px;">${c.subtitle}</div>` : ''}
         ${changeHtml}
       </div>`;
     }).join('');
@@ -1285,6 +1312,7 @@ function renderSummaryCards(containerId, data, variant) {
       return `<div class="card animate-fade-up stagger-${i+1}" style="text-align:center;">
         <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--v4-text-dim); margin-bottom:12px;">${c.label}</div>
         <div style="font-family:'Playfair Display',serif; font-size:32px; font-weight:400; color:var(--v4-text);">${c.value}</div>
+        ${c.subtitle ? `<div style="font-size:11px; color:var(--v4-text-dim); margin-top:4px;">${c.subtitle}</div>` : ''}
         ${changeHtml}
       </div>`;
     }).join('');
@@ -1301,6 +1329,7 @@ function renderSummaryCards(containerId, data, variant) {
           <i data-lucide="${c.icon}" style="width:16px; height:16px; color:var(--v5-accent); opacity:0.6;"></i>
         </div>
         <div style="font-size:28px; font-weight:800; background:linear-gradient(135deg, var(--v5-text), var(--v5-accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">${c.value}</div>
+        ${c.subtitle ? `<div style="font-size:11px; color:var(--v5-text-dim); margin-top:4px;">${c.subtitle}</div>` : ''}
         ${changeHtml}
       </div>`;
     }).join('');
@@ -1568,6 +1597,154 @@ function sortSessions(variantPrefix, key) {
 }
 
 // ============================================
+// SUBSCRIPTION ROI
+// ============================================
+
+function saveSubscriptions() {
+  localStorage.setItem('ut-subscriptions', JSON.stringify(subscriptions));
+}
+
+function toggleSubEdit() {
+  subEditMode = !subEditMode;
+  renderSubscriptionROI(`v${currentVariant}-sub-roi`, currentData, currentVariant);
+}
+
+function updateSubCost(index, value) {
+  const num = parseFloat(value);
+  if (!isNaN(num) && num >= 0) {
+    subscriptions[index].cost = num;
+    saveSubscriptions();
+    renderSubscriptionROI(`v${currentVariant}-sub-roi`, currentData, currentVariant);
+  }
+}
+
+function toggleSubEnabled(index) {
+  subscriptions[index].enabled = !subscriptions[index].enabled;
+  saveSubscriptions();
+  renderSubscriptionROI(`v${currentVariant}-sub-roi`, currentData, currentVariant);
+}
+
+function addSubscription() {
+  subscriptions.push({ name: 'New Sub', cost: 0, enabled: true });
+  saveSubscriptions();
+  renderSubscriptionROI(`v${currentVariant}-sub-roi`, currentData, currentVariant);
+}
+
+function removeSubscription(index) {
+  subscriptions.splice(index, 1);
+  saveSubscriptions();
+  renderSubscriptionROI(`v${currentVariant}-sub-roi`, currentData, currentVariant);
+}
+
+function updateSubName(index, value) {
+  subscriptions[index].name = value;
+  saveSubscriptions();
+}
+
+function renderSubscriptionROI(containerId, data, variant) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const monthlySub = subscriptions.filter(s => s.enabled).reduce((a, s) => a + s.cost, 0);
+  const apiCost = data.totalCost;
+  const savings = apiCost - monthlySub;
+  const roi = monthlySub > 0 ? (apiCost / monthlySub) : 0;
+  const savingsPct = monthlySub > 0 ? ((savings / monthlySub) * 100) : 0;
+
+  const roiLabel = roi >= 1 ? roi.toFixed(1) + 'x' : (roi * 100).toFixed(0) + '%';
+  const savingsPositive = savings > 0;
+
+  // Subscription line items
+  const subLines = subscriptions.map((s, i) => ({ ...s, index: i }));
+
+  // Variant-specific styling
+  const styles = {
+    1: { card: 'background:var(--v1-surface); border:1px solid var(--v1-border); border-radius:12px; padding:24px;', text: 'var(--v1-text)', dim: 'var(--v1-text-muted)', accent: 'var(--v1-accent)', success: 'var(--v1-success, #34d399)', warn: '#fbbf24', inputBg: 'var(--v1-surface2)', inputBorder: 'var(--v1-border)' },
+    2: { card: 'background:var(--v2-surface); border:1px solid var(--v2-border); border-radius:8px; padding:28px;', text: 'var(--v2-text)', dim: 'var(--v2-text-dim)', accent: 'var(--v2-accent)', success: '#047857', warn: '#b45309', inputBg: '#fff', inputBorder: 'var(--v2-border)' },
+    3: { card: 'background:var(--v3-bg); border:1px solid var(--v3-border); padding:24px;', text: 'var(--v3-text)', dim: 'var(--v3-text-dim)', accent: 'var(--v3-accent)', success: '#10b981', warn: '#f59e0b', inputBg: '#fff', inputBorder: 'var(--v3-border)' },
+    4: { card: 'background:var(--v4-surface, #faf6ef); border:1px solid var(--v4-border); border-radius:4px; padding:28px;', text: 'var(--v4-text)', dim: 'var(--v4-text-dim)', accent: 'var(--v4-text)', success: '#065f46', warn: '#92400e', inputBg: '#faf6ef', inputBorder: 'var(--v4-border)' },
+    5: { card: 'background:rgba(255,255,255,0.04); border:1px solid var(--v5-border); border-radius:16px; padding:24px;', text: 'var(--v5-text)', dim: 'var(--v5-text-dim)', accent: 'var(--v5-accent)', success: '#67e8f9', warn: '#fbbf24', inputBg: 'rgba(255,255,255,0.06)', inputBorder: 'var(--v5-border)' },
+  };
+  const s = styles[variant];
+
+  // Edit button
+  const editBtn = `<button onclick="toggleSubEdit()" style="background:none; border:1px solid ${s.dim}; border-radius:6px; padding:4px 10px; font-size:11px; color:${s.dim}; cursor:pointer; transition:opacity 0.15s;" onmouseenter="this.style.opacity='0.7'" onmouseleave="this.style.opacity='1'">${subEditMode ? 'Done' : 'Edit'}</button>`;
+
+  // Sub items
+  let subItemsHtml = '';
+  subLines.forEach(sub => {
+    if (subEditMode) {
+      subItemsHtml += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <input type="checkbox" ${sub.enabled ? 'checked' : ''} onchange="toggleSubEnabled(${sub.index})" style="cursor:pointer;">
+        <input type="text" value="${sub.name}" onchange="updateSubName(${sub.index}, this.value)" style="background:${s.inputBg}; border:1px solid ${s.inputBorder}; border-radius:4px; padding:4px 8px; font-size:12px; color:${s.text}; width:140px; outline:none;">
+        <span style="font-size:12px; color:${s.dim};">$</span>
+        <input type="number" value="${sub.cost}" onchange="updateSubCost(${sub.index}, this.value)" style="background:${s.inputBg}; border:1px solid ${s.inputBorder}; border-radius:4px; padding:4px 8px; font-size:12px; color:${s.text}; width:80px; outline:none;">
+        <button onclick="removeSubscription(${sub.index})" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:14px; padding:2px 6px;">×</button>
+      </div>`;
+    } else {
+      subItemsHtml += `<div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; opacity:${sub.enabled ? '1' : '0.4'};">
+        <span style="font-size:13px; color:${s.text};">${sub.name}</span>
+        <span style="font-size:13px; font-weight:600; color:${s.text};">$${sub.cost.toFixed(0)}/mo</span>
+      </div>`;
+    }
+  });
+
+  if (subEditMode) {
+    subItemsHtml += `<button onclick="addSubscription()" style="background:none; border:1px dashed ${s.dim}; border-radius:6px; padding:6px 12px; font-size:11px; color:${s.dim}; cursor:pointer; margin-top:4px; width:100%;">+ Add Subscription</button>`;
+  }
+
+  // ROI cards (3-column grid)
+  const roiColor = savingsPositive ? s.success : s.warn;
+
+  container.innerHTML = `
+    <div style="${s.card}" class="animate-fade-up">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:15px; font-weight:600; color:${s.text};">Subscription ROI</span>
+          <span style="font-size:11px; color:${s.dim}; padding:2px 8px; border-radius:4px; background:${savingsPositive ? roiColor + '18' : roiColor + '18'}; color:${roiColor};">${savingsPositive ? 'Saving' : 'Over budget'}</span>
+        </div>
+        ${editBtn}
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; margin-bottom:20px;">
+        <div>
+          <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Monthly Subscription</div>
+          <div style="font-size:24px; font-weight:700; color:${s.text};">$${monthlySub.toFixed(0)}</div>
+          <div style="font-size:11px; color:${s.dim}; margin-top:2px;">${subscriptions.filter(x=>x.enabled).length} active plan${subscriptions.filter(x=>x.enabled).length !== 1 ? 's' : ''}</div>
+        </div>
+        <div>
+          <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">API-Rate Equivalent</div>
+          <div style="font-size:24px; font-weight:700; color:${s.text};">${formatCost(apiCost)}</div>
+          <div style="font-size:11px; color:${s.dim}; margin-top:2px;">at standard token pricing</div>
+        </div>
+        <div>
+          <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Net Savings</div>
+          <div style="font-size:24px; font-weight:700; color:${roiColor};">${savingsPositive ? '+' : ''}${formatCost(Math.abs(savings))}</div>
+          <div style="font-size:11px; color:${roiColor}; margin-top:2px;">${roiLabel} return on subscription</div>
+        </div>
+      </div>
+
+      <!-- Progress bar showing subscription vs API cost -->
+      <div style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:${s.dim}; margin-bottom:6px;">
+          <span>Subscription: $${monthlySub.toFixed(0)}</span>
+          <span>API equivalent: ${formatCost(apiCost)}</span>
+        </div>
+        <div style="height:8px; background:${s.inputBg}; border-radius:4px; overflow:hidden; position:relative;">
+          <div style="height:100%; width:${Math.min((monthlySub / Math.max(apiCost, monthlySub, 1)) * 100, 100)}%; background:${s.accent}; border-radius:4px; transition:width 0.6s ease;"></div>
+        </div>
+      </div>
+
+      <!-- Subscription line items -->
+      <div style="border-top:1px solid ${s.inputBorder}; padding-top:16px;">
+        <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Plans</div>
+        ${subItemsHtml}
+      </div>
+    </div>
+  `;
+}
+
+// ============================================
 // RENDER ALL FOR CURRENT VARIANT
 // ============================================
 function renderAll() {
@@ -1575,6 +1752,7 @@ function renderAll() {
   const prefix = `v${v}`;
   
   renderSummaryCards(`${prefix}-summary`, currentData, v);
+  renderSubscriptionROI(`${prefix}-sub-roi`, currentData, v);
   renderDailyChart(`${prefix}-daily-chart`, currentData, v);
   renderModelChart(`${prefix}-model-chart`, currentData, v);
   renderProviders(`${prefix}-providers`, currentData, v);
@@ -1733,6 +1911,12 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'd' || e.key === 'D') {
     e.preventDefault();
     toggleMode();
+    return;
+  }
+  
+  if (e.key === 's' || e.key === 'S') {
+    e.preventDefault();
+    toggleSubEdit();
     return;
   }
 });
