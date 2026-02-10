@@ -452,7 +452,7 @@
     </div>
     
     <!-- Summary Cards -->
-    <div id="v1-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:28px;"></div>
+    <div id="v1-summary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:16px; margin-bottom:28px;"></div>
     <div id="v1-sub-roi" style="margin-bottom:28px;"></div>
     
     <!-- Charts Row -->
@@ -514,7 +514,7 @@
     </div>
     
     <!-- Summary Cards -->
-    <div id="v2-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:24px; margin-bottom:48px;"></div>
+    <div id="v2-summary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:24px; margin-bottom:48px;"></div>
     <div id="v2-sub-roi" style="margin-bottom:48px;"></div>
     
     <!-- Daily Cost Chart -->
@@ -571,7 +571,7 @@
     </div>
     
     <!-- Summary -->
-    <div id="v3-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:var(--v3-border); margin-bottom:48px; border:1px solid var(--v3-border);"></div>
+    <div id="v3-summary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:1px; background:var(--v3-border); margin-bottom:48px; border:1px solid var(--v3-border);"></div>
     <div id="v3-sub-roi" style="margin-bottom:48px;"></div>
     
     <!-- Chart + Model side by side -->
@@ -631,7 +631,7 @@
     </div>
     
     <!-- Summary Cards -->
-    <div id="v4-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:20px; margin-bottom:48px;"></div>
+    <div id="v4-summary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:20px; margin-bottom:48px;"></div>
     <div id="v4-sub-roi" style="margin-bottom:48px;"></div>
     
     <!-- Daily chart -->
@@ -693,7 +693,7 @@
     <div class="glow-line animate-fade-in" style="margin-bottom:32px;"></div>
     
     <!-- Summary Cards -->
-    <div id="v5-summary" style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:28px;"></div>
+    <div id="v5-summary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:16px; margin-bottom:28px;"></div>
     <div id="v5-sub-roi" style="margin-bottom:28px;"></div>
     
     <!-- Charts -->
@@ -1698,15 +1698,15 @@ function renderSubscriptionROI(containerId, data, variant) {
 
   container.innerHTML = `
     <div style="${s.card}" class="animate-fade-up">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <div style="display:flex; align-items:center; gap:8px;">
+      <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; margin-bottom:20px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span style="font-size:15px; font-weight:600; color:${s.text};">Subscription ROI</span>
           <span style="font-size:11px; color:${s.dim}; padding:2px 8px; border-radius:4px; background:${savingsPositive ? roiColor + '18' : roiColor + '18'}; color:${roiColor};">${savingsPositive ? 'Saving' : 'Over budget'}</span>
         </div>
         ${editBtn}
       </div>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; margin-bottom:20px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:16px; margin-bottom:20px;">
         <div>
           <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Monthly Subscription</div>
           <div style="font-size:24px; font-weight:700; color:${s.text};">$${monthlySub.toFixed(0)}</div>
