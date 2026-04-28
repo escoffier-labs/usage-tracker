@@ -2001,9 +2001,9 @@ function renderSubscriptionROI(containerId, data, variant) {
   if (!container) return;
 
   const monthlySub = subscriptions.filter(s => s.enabled).reduce((a, s) => a + s.cost, 0);
-  const apiCost = data.totalCost;
-  const savings = apiCost - monthlySub;
-  const roi = monthlySub > 0 ? (apiCost / monthlySub) : 0;
+  const oauthValue = data.oauthCost || 0;
+  const savings = oauthValue - monthlySub;
+  const roi = monthlySub > 0 ? (oauthValue / monthlySub) : 0;
   const savingsPct = monthlySub > 0 ? ((savings / monthlySub) * 100) : 0;
 
   const roiLabel = roi >= 1 ? roi.toFixed(1) + 'x' : (roi * 100).toFixed(0) + '%';
@@ -2068,9 +2068,9 @@ function renderSubscriptionROI(containerId, data, variant) {
           <div style="font-size:11px; color:${s.dim}; margin-top:2px;">${subscriptions.filter(x=>x.enabled).length} active plan${subscriptions.filter(x=>x.enabled).length !== 1 ? 's' : ''}</div>
         </div>
         <div>
-          <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">API-Rate Equivalent</div>
-          <div style="font-size:24px; font-weight:700; color:${s.text};">${formatCost(apiCost)}</div>
-          <div style="font-size:11px; color:${s.dim}; margin-top:2px;">at standard token pricing</div>
+          <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">OAuth Value Extracted</div>
+          <div style="font-size:24px; font-weight:700; color:${s.text};">${formatCost(oauthValue)}</div>
+          <div style="font-size:11px; color:${s.dim}; margin-top:2px;">what your subs would have cost via API</div>
         </div>
         <div>
           <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Net Savings</div>
@@ -2079,14 +2079,14 @@ function renderSubscriptionROI(containerId, data, variant) {
         </div>
       </div>
 
-      <!-- Progress bar showing subscription vs API cost -->
+      <!-- Progress bar: subscription cost vs OAuth value extracted -->
       <div style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; font-size:11px; color:${s.dim}; margin-bottom:6px;">
           <span>Subscription: $${monthlySub.toFixed(0)}</span>
-          <span>API equivalent: ${formatCost(apiCost)}</span>
+          <span>OAuth value: ${formatCost(oauthValue)}</span>
         </div>
         <div style="height:8px; background:${s.inputBg}; border-radius:4px; overflow:hidden; position:relative;">
-          <div style="height:100%; width:${Math.min((monthlySub / Math.max(apiCost, monthlySub, 1)) * 100, 100)}%; background:${s.accent}; border-radius:4px; transition:width 0.6s ease;"></div>
+          <div style="height:100%; width:${Math.min((monthlySub / Math.max(oauthValue, monthlySub, 1)) * 100, 100)}%; background:${s.accent}; border-radius:4px; transition:width 0.6s ease;"></div>
         </div>
       </div>
 
