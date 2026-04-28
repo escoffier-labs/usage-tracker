@@ -158,37 +158,6 @@
     opacity: 1;
   }
   
-  /* Mode badge */
-  .mode-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    transition: all 0.2s ease;
-    cursor: pointer;
-  }
-  .mode-badge.demo {
-    background: #dbeafe;
-    color: #1e40af;
-  }
-  .mode-badge.live {
-    background: #dcfce7;
-    color: #166534;
-  }
-  .mode-badge .pulse-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    animation: pulseGlow 2s infinite;
-  }
-  .mode-badge.demo .pulse-dot { background: #3b82f6; }
-  .mode-badge.live .pulse-dot { background: #22c55e; }
-  
   /* Variant navigation */
   .variant-nav {
     position: fixed;
@@ -443,12 +412,7 @@
         <h1 style="font-size:28px; font-weight:700; margin:0; color:var(--v1-text); letter-spacing:-0.5px;">Usage Tracker</h1>
         <p style="margin:4px 0 0 0; font-size:14px; color:var(--v1-text-muted);">OpenClaw token usage &amp; cost analytics</p>
       </div>
-      <div style="display:flex; align-items:center; gap:16px;">
-        <div id="v1-mode-badge" class="mode-badge demo" onclick="toggleMode()">
-          <span class="pulse-dot"></span>
-          <span class="mode-label">Demo Mode</span>
-        </div>
-      </div>
+      <div style="display:flex; align-items:center; gap:16px;"></div>
     </div>
     
     <!-- Summary Cards -->
@@ -506,10 +470,6 @@
           <p style="font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500; text-transform:uppercase; letter-spacing:2px; color:var(--v2-accent); margin:0 0 8px 0;">OpenClaw Analytics</p>
           <h1 style="font-family:'Newsreader',serif; font-size:42px; font-weight:400; margin:0; color:var(--v2-text); letter-spacing:-1px;">Usage Tracker</h1>
         </div>
-        <div id="v2-mode-badge" class="mode-badge demo" onclick="toggleMode()">
-          <span class="pulse-dot"></span>
-          <span class="mode-label">Demo Mode</span>
-        </div>
       </div>
     </div>
     
@@ -563,10 +523,6 @@
       <div style="display:flex; align-items:baseline; gap:16px;">
         <h1 style="font-size:20px; font-weight:600; margin:0; color:var(--v3-text); letter-spacing:-0.3px;">USAGE TRACKER</h1>
         <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--v3-text-dim); letter-spacing:1px;">OPENCLAW</span>
-      </div>
-      <div id="v3-mode-badge" class="mode-badge demo" onclick="toggleMode()">
-        <span class="pulse-dot"></span>
-        <span class="mode-label">Demo Mode</span>
       </div>
     </div>
     
@@ -622,12 +578,6 @@
       <h1 style="font-family:'Playfair Display',serif; font-size:36px; font-weight:400; margin:0; color:var(--v4-text); letter-spacing:1px;">Usage Tracker</h1>
       <div style="width:60px; height:1px; background:var(--v4-text); margin:16px auto; opacity:0.3;"></div>
       <p style="font-size:14px; color:var(--v4-text-dim); margin:0; font-style:italic;">Token consumption &amp; cost ledger</p>
-      <div style="margin-top:12px;">
-        <span id="v4-mode-badge" class="mode-badge demo" onclick="toggleMode()" style="background:#e8e0d4; color:#5a4d3e;">
-          <span class="pulse-dot" style="background:#8b7355;"></span>
-          <span class="mode-label">Demo Mode</span>
-        </span>
-      </div>
     </div>
     
     <!-- Summary Cards -->
@@ -685,10 +635,6 @@
         <h1 style="font-size:30px; font-weight:800; margin:0; color:#a78bfa; letter-spacing:-0.5px;">Usage Tracker</h1>
         <p style="margin:4px 0 0 0; font-size:13px; color:var(--v5-text-dim);">OpenClaw analytics dashboard</p>
       </div>
-      <div id="v5-mode-badge" class="mode-badge demo" onclick="toggleMode()" style="background:rgba(99,102,241,0.2); color:#c4b5fd; border:1px solid rgba(167,139,250,0.3);">
-        <span class="pulse-dot" style="background:#a78bfa;"></span>
-        <span class="mode-label">Demo Mode</span>
-      </div>
     </div>
     <div class="glow-line animate-fade-in" style="margin-bottom:32px;"></div>
     
@@ -733,202 +679,10 @@
 
 <script>
 // ============================================
-// MOCK DATA GENERATION
-// ============================================
-
-function generateMockData() {
-  const now = new Date();
-  const models = [
-    { name: 'claude-opus-4-6', provider: 'anthropic', inputCostPer1k: 0.015, outputCostPer1k: 0.075, minTokens: 50000, maxTokens: 200000, weight: 40 },
-    { name: 'claude-haiku-4-5', provider: 'anthropic', inputCostPer1k: 0.001, outputCostPer1k: 0.005, minTokens: 10000, maxTokens: 50000, weight: 25 },
-    { name: 'gpt-5.2', provider: 'openai', inputCostPer1k: 0.003, outputCostPer1k: 0.015, minTokens: 30000, maxTokens: 80000, weight: 15 },
-    { name: 'kimi-k2.5', provider: 'moonshot', inputCostPer1k: 0, outputCostPer1k: 0, minTokens: 20000, maxTokens: 60000, weight: 10 },
-    { name: 'qwen2.5-coder', provider: 'ollama', inputCostPer1k: 0, outputCostPer1k: 0, minTokens: 5000, maxTokens: 30000, weight: 10 },
-  ];
-  
-  const labels = ['pipeline-build', 'code-review', 'heartbeat', 'debug-session', 'refactor', 'feature-add', 'docs-update', 'testing', 'architecture', 'bug-fix', 'deployment', null, null, null, null, null];
-  
-  const sessions = [];
-  const dailyData = {};
-  
-  // Generate 14 days
-  for (let d = 13; d >= 0; d--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - d);
-    const dateStr = date.toISOString().split('T')[0];
-    const dayOfWeek = date.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    
-    // Fewer sessions on weekends
-    const numSessions = isWeekend ? Math.floor(Math.random() * 2) + 1 : Math.floor(Math.random() * 3) + 2;
-    
-    dailyData[dateStr] = { cost: 0, tokens: 0, sessions: 0 };
-    
-    for (let s = 0; s < numSessions; s++) {
-      // Weighted random model selection
-      const totalWeight = models.reduce((a, m) => a + m.weight, 0);
-      let r = Math.random() * totalWeight;
-      let selectedModel = models[0];
-      for (const m of models) {
-        r -= m.weight;
-        if (r <= 0) { selectedModel = m; break; }
-      }
-      
-      const totalTokens = Math.floor(Math.random() * (selectedModel.maxTokens - selectedModel.minTokens) + selectedModel.minTokens);
-      const inputRatio = 0.6 + Math.random() * 0.2; // 60-80% input
-      const inputTokens = Math.floor(totalTokens * inputRatio);
-      const outputTokens = totalTokens - inputTokens;
-      const cacheRead = Math.floor(inputTokens * Math.random() * 0.3);
-      const cacheWrite = Math.floor(inputTokens * Math.random() * 0.1);
-      
-      const inputCost = (inputTokens / 1000) * selectedModel.inputCostPer1k;
-      const outputCost = (outputTokens / 1000) * selectedModel.outputCostPer1k;
-      const totalCost = inputCost + outputCost;
-      
-      const sessionId = crypto.randomUUID ? crypto.randomUUID() : 
-        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = Math.random() * 16 | 0;
-          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-        });
-      
-      const hour = Math.floor(Math.random() * 14) + 8; // 8am - 10pm
-      const minute = Math.floor(Math.random() * 60);
-      const ts = new Date(date);
-      ts.setHours(hour, minute, 0, 0);
-      
-      const label = labels[Math.floor(Math.random() * labels.length)];
-      
-      const session = {
-        id: sessionId,
-        shortId: sessionId.slice(0, 8),
-        timestamp: ts.toISOString(),
-        date: dateStr,
-        label: label,
-        model: selectedModel.name,
-        provider: selectedModel.provider,
-        usage: {
-          input: inputTokens,
-          output: outputTokens,
-          cacheRead: cacheRead,
-          cacheWrite: cacheWrite,
-          totalTokens: totalTokens,
-          cost: {
-            input: inputCost,
-            output: outputCost,
-            cacheRead: 0,
-            cacheWrite: 0,
-            total: totalCost
-          }
-        }
-      };
-      
-      sessions.push(session);
-      dailyData[dateStr].cost += totalCost;
-      dailyData[dateStr].tokens += totalTokens;
-      dailyData[dateStr].sessions += 1;
-    }
-  }
-  
-  // Sort sessions by date descending
-  sessions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  
-  // Compute aggregates
-  const totalTokens = sessions.reduce((a, s) => a + s.usage.totalTokens, 0);
-  const totalCost = sessions.reduce((a, s) => a + s.usage.cost.total, 0);
-  const totalCacheRead = sessions.reduce((a, s) => a + (s.usage.cacheRead || 0), 0);
-  const totalCacheWrite = sessions.reduce((a, s) => a + (s.usage.cacheWrite || 0), 0);
-  const cacheHitRate = (totalCacheRead + totalCacheWrite) > 0 ? (totalCacheRead / (totalCacheRead + totalCacheWrite) * 100) : 0;
-  const activeModels = [...new Set(sessions.map(s => s.model))];
-  
-  // This week vs last week
-  const today = new Date(now);
-  const thisWeekStart = new Date(today);
-  thisWeekStart.setDate(today.getDate() - today.getDay());
-  thisWeekStart.setHours(0,0,0,0);
-  const lastWeekStart = new Date(thisWeekStart);
-  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-  
-  let thisWeekCost = 0, lastWeekCost = 0, thisWeekTokens = 0, lastWeekTokens = 0;
-  let thisWeekSessions = 0, lastWeekSessions = 0;
-  
-  sessions.forEach(s => {
-    const sd = new Date(s.timestamp);
-    if (sd >= thisWeekStart) {
-      thisWeekCost += s.usage.cost.total;
-      thisWeekTokens += s.usage.totalTokens;
-      thisWeekSessions++;
-    } else if (sd >= lastWeekStart && sd < thisWeekStart) {
-      lastWeekCost += s.usage.cost.total;
-      lastWeekTokens += s.usage.totalTokens;
-      lastWeekSessions++;
-    }
-  });
-  
-  const costChange = lastWeekCost > 0 ? ((thisWeekCost - lastWeekCost) / lastWeekCost * 100) : 0;
-  const tokenChange = lastWeekTokens > 0 ? ((thisWeekTokens - lastWeekTokens) / lastWeekTokens * 100) : 0;
-  const sessionChange = lastWeekSessions > 0 ? ((thisWeekSessions - lastWeekSessions) / lastWeekSessions * 100) : 0;
-  
-  // Model breakdown
-  const modelStats = {};
-  sessions.forEach(s => {
-    if (!modelStats[s.model]) {
-      modelStats[s.model] = { model: s.model, provider: s.provider, tokens: 0, cost: 0, sessions: 0 };
-    }
-    modelStats[s.model].tokens += s.usage.totalTokens;
-    modelStats[s.model].cost += s.usage.cost.total;
-    modelStats[s.model].sessions++;
-  });
-  
-  // Provider breakdown
-  const providerStats = {};
-  sessions.forEach(s => {
-    if (!providerStats[s.provider]) {
-      providerStats[s.provider] = { provider: s.provider, tokens: 0, cost: 0, sessions: 0, models: new Set() };
-    }
-    providerStats[s.provider].tokens += s.usage.totalTokens;
-    providerStats[s.provider].cost += s.usage.cost.total;
-    providerStats[s.provider].sessions++;
-    providerStats[s.provider].models.add(s.model);
-  });
-  
-  // Convert daily data to sorted array
-  const dailyArray = Object.entries(dailyData)
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, data]) => ({ date, ...data }));
-  
-  return {
-    sessions,
-    dailyData: dailyArray,
-    totalTokens,
-    totalCost,
-    totalCacheRead,
-    totalCacheWrite,
-    cacheHitRate,
-    totalSessions: sessions.length,
-    activeModels,
-    modelStats: Object.values(modelStats).sort((a, b) => b.cost - a.cost),
-    providerStats: Object.values(providerStats).map(p => ({ ...p, models: [...p.models] })).sort((a, b) => b.cost - a.cost),
-    weekOverWeek: {
-      costChange,
-      tokenChange,
-      sessionChange,
-      thisWeekCost,
-      lastWeekCost,
-      thisWeekTokens,
-      lastWeekTokens,
-      thisWeekSessions,
-      lastWeekSessions
-    }
-  };
-}
-
-// ============================================
 // STATE
 // ============================================
 let currentVariant = parseInt(localStorage.getItem('ut-variant') || '1');
-let isLiveMode = localStorage.getItem('ut-mode') !== 'demo';
-let mockData = generateMockData();
-let currentData = mockData;
+let currentData = null;
 let sessionSortKey = 'cost';
 let sessionSortDir = 'desc';
 
@@ -1758,26 +1512,6 @@ function renderAll() {
   renderProviders(`${prefix}-providers`, currentData, v);
   renderSessions(`${prefix}-sessions`, currentData, v);
   
-  // Update mode badges
-  updateModeBadges();
-}
-
-function updateModeBadges() {
-  for (let i = 1; i <= 5; i++) {
-    const badge = document.getElementById(`v${i}-mode-badge`);
-    if (badge) {
-      const label = badge.querySelector('.mode-label');
-      if (isLiveMode) {
-        badge.classList.remove('demo');
-        badge.classList.add('live');
-        if (label) label.textContent = 'Live Mode';
-      } else {
-        badge.classList.remove('live');
-        badge.classList.add('demo');
-        if (label) label.textContent = 'Demo Mode';
-      }
-    }
-  }
 }
 
 // ============================================
@@ -1830,54 +1564,6 @@ function switchVariant(num) {
 }
 
 // ============================================
-// MODE TOGGLE
-// ============================================
-function toggleMode() {
-  isLiveMode = !isLiveMode;
-  localStorage.setItem('ut-mode', isLiveMode ? 'live' : 'demo');
-  
-  if (isLiveMode) {
-    // Try to fetch from API
-    fetchLiveData();
-  } else {
-    currentData = mockData;
-    renderAll();
-  }
-}
-
-async function fetchLiveData() {
-  try {
-    const apiHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'localhost' : window.location.hostname;
-    const resp = await fetch(`http://${apiHost}:8005/api/usage`, { signal: AbortSignal.timeout(3000) });
-    if (!resp.ok) throw new Error('API returned ' + resp.status);
-    const data = await resp.json();
-    currentData = data;
-    renderAll();
-  } catch (e) {
-    // Show connection message
-    showLiveError();
-  }
-}
-
-function showLiveError() {
-  const v = currentVariant;
-  const prefix = `v${v}`;
-  const summaryEl = document.getElementById(`${prefix}-summary`);
-  if (summaryEl) {
-    const isDark = v === 1 || v === 5;
-    const bg = isDark ? 'rgba(251,191,36,0.1)' : 'rgba(251,191,36,0.08)';
-    const border = isDark ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.4)';
-    const text = isDark ? '#fbbf24' : '#92400e';
-    
-    summaryEl.innerHTML = `<div style="grid-column:1/-1; background:${bg}; border:1px solid ${border}; border-radius:12px; padding:24px; text-align:center;">
-      <div style="font-size:16px; font-weight:600; color:${text}; margin-bottom:8px;">Connect to Dev Tools API</div>
-      <div style="font-size:13px; color:${isDark ? '#94a3b8' : '#64748b'};">Unable to reach <code style="background:rgba(0,0,0,0.1); padding:2px 6px; border-radius:4px;">http://${apiHost || 'localhost'}:8005/api/usage</code></div>
-      <div style="font-size:12px; color:${isDark ? '#64748b' : '#94a3b8'}; margin-top:8px;">Press <kbd class="shortcut-key">D</kbd> to switch back to demo mode</div>
-    </div>`;
-  }
-}
-
-// ============================================
 // KEYBOARD SHORTCUTS
 // ============================================
 document.addEventListener('keydown', (e) => {
@@ -1905,12 +1591,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key >= '1' && e.key <= '5') {
     e.preventDefault();
     switchVariant(parseInt(e.key));
-    return;
-  }
-  
-  if (e.key === 'd' || e.key === 'D') {
-    e.preventDefault();
-    toggleMode();
     return;
   }
   
@@ -1955,13 +1635,10 @@ window.addEventListener('resize', () => {
 // INITIALIZATION
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
+  currentData = null;
+  renderAll();
   handleHash();
-  
-  // Auto-fetch live data if persisted mode is live
-  if (isLiveMode) {
-    fetchLiveData();
-  }
-  
+
   // Initialize Lucide icons
   if (typeof lucide !== 'undefined') {
     lucide.createIcons();
