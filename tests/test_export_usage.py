@@ -56,3 +56,24 @@ def test_extract_record_full_snapshot():
 def test_classify_billing(provider, expected):
     import export_usage as eu
     assert eu.classify_billing(provider) == expected
+
+
+def test_truncated_event_returns_none():
+    import export_usage as eu
+    fixture = ROOT / "tests" / "fixtures" / "sample-truncated.trajectory.jsonl"
+    event = json.loads(fixture.read_text().strip())
+    assert eu.extract_record_from_event(event, agent="main") is None
+
+
+def test_no_snapshot_falls_back_to_data_usage():
+    import export_usage as eu
+    fixture = ROOT / "tests" / "fixtures" / "sample-no-snapshot.trajectory.jsonl"
+    event = json.loads(fixture.read_text().strip())
+    rec = eu.extract_record_from_event(event, agent="main")
+    assert rec is not None
+    assert rec["input"] == 1000
+    assert rec["output"] == 200
+    assert rec["totalTokens"] == 1200
+    assert rec["costUsd"] is None
+    assert rec["billing"] == "api"
+    assert rec["modelId"] == "claude-opus-4-6"

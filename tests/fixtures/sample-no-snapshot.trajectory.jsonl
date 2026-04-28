@@ -1,0 +1,1 @@
+{"type":"model.completed","ts":"2026-03-01T10:00:00.000Z","sessionId":"old","sessionKey":"agent:main:legacy","runId":"old","provider":"anthropic","modelId":"claude-opus-4-6","modelApi":"anthropic-messages","workspaceDir":"/x","data":{"usage":{"input":1000,"output":200,"total":1200}}}
