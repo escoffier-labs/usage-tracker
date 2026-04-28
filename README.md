@@ -1,51 +1,67 @@
 <p align="center">
   <img src="https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white" alt="HTML5" />
-  <img src="https://img.shields.io/badge/CSS3-1572B6?style=flat-square&logo=css3&logoColor=white" alt="CSS3" />
-  <img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black" alt="JavaScript" />
+  <img src="https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License" />
 </p>
 
-# 💰 Solomon's Usage Tracker
+# Usage Tracker
 
-**AI model usage and cost tracker with visual theme switching.**
+OpenClaw session cost analytics. Single static page plus a tiny Python exporter that reads OpenClaw trajectory jsonls and writes a flat `data/usage.json` the page renders.
 
-Monitor spending across AI providers, calculate ROI per session, and track costs over time. A single HTML file with zero dependencies, five visual themes, and localStorage persistence.
+Splits real **API spend** from **OAuth subscription burn** (what your Codex Pro / Claude Max calls would have cost at API rates) so you can see what each session actually cost and whether your subscriptions are paying off.
 
-## Quick Start
+## Quick start
 
 ```bash
 git clone https://github.com/solomonneas/usage-tracker.git
 cd usage-tracker
+
+# Build data/usage.json from your OpenClaw sessions
+python3 bin/export_usage.py --since 30d
+
+# Serve the page
 python3 -m http.server 5200
 ```
 
-Open [http://localhost:5200](http://localhost:5200) or just open `index.html` directly.
+Open http://localhost:5200.
 
-## Features
+For an always-fresh dataset, install the opt-in user-systemd timer (5 minute refresh):
 
-- 💵 Track costs across multiple AI providers (OpenAI, Anthropic, Google, etc.)
-- 📊 Per-session cost breakdown with input/output token counts
-- 📈 Spending trends over time with interactive charts
-- 🧮 ROI calculator comparing cost vs. time saved
-- 🎨 Five visual themes (dark, light, cyberpunk, ocean, forest)
-- 💾 All data stored in localStorage, no backend needed
-- 📤 Export data as JSON for backup or analysis
-- 🔍 Filter and search by provider, model, or date range
-- ⚡ Zero dependencies, single index.html file
+```bash
+cp bin/usage-tracker-export.service ~/.config/systemd/user/
+cp bin/usage-tracker-export.timer   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now usage-tracker-export.timer
+```
 
-## Tech Stack
+(Edit the service file's `ExecStart` path to point at wherever you cloned this repo.)
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| Markup | HTML5 | Page structure |
-| Styling | CSS3 | Themes and responsive layout |
-| Logic | Vanilla JavaScript | All interactivity and calculations |
-| Storage | localStorage | Client-side data persistence |
-| Charts | Canvas API | Spending visualizations |
+## Drag-and-drop fallback
 
-## Why This Exists
+If `data/usage.json` is missing (e.g., you opened the page on a different machine), drop one or more `*.trajectory.jsonl` files or a previously-exported `usage.json` onto the page. Records are parsed client-side and cached in localStorage.
 
-AI API costs add up fast and most providers only show billing at the account level. Usage Tracker gives you granular, per-session visibility into what you are spending and whether the investment is paying off.
+## What it shows
+
+- **API spend** versus **OAuth value extracted** for the period
+- Per-agent breakdown (main, coder, codex-builder, claude-builder, ...)
+- Sessions table grouped by session id, with per-call drill-down
+- Per-model bar chart, stacked by billing type
+- Daily cost time series, stacked by billing type
+- Subscription ROI: monthly subscription costs versus OAuth value extracted
+- Five design variants to choose from
+
+## Architecture
+
+- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.trajectory.jsonl`, extracts `model.completed` events, writes a flat array to `data/usage.json`.
+- `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
+- No backend. localStorage caches the last load and your subscription settings.
+
+## Development
+
+```bash
+python3 -m pytest tests/   # exporter tests
+python3 -m http.server 5200  # page
+```
 
 ## License
 
