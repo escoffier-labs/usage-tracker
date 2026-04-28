@@ -1004,7 +1004,9 @@ function normalizeRecords(records) {
     modelStats: arrify(modelStats),
     providerStats: arrify(providerStats),
     agentStats: arrify(agentStats),
-    dailyData,
+    dailyData: Object.keys(dailyData)
+      .sort()
+      .map(date => ({ date, ...dailyData[date] })),
   };
 }
 
@@ -1069,104 +1071,188 @@ function formatTimestamp(ts) {
 function renderDailyChart(containerId, data, variant) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  
+
   const width = container.clientWidth;
   const height = container.clientHeight || 240;
   const padding = { top: 20, right: 20, bottom: 36, left: 60 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
-  
+
   const daily = data.dailyData;
+  if (!daily || daily.length === 0) return;
+
   const maxCost = Math.max(...daily.map(d => d.cost), 0.01);
-  
+  const baseline = padding.top + chartH;
+
   // Color schemes per variant
   const schemes = {
-    1: { line: '#818cf8', area: 'rgba(129,140,248,0.15)', grid: '#333842', text: '#64748b', dot: '#a78bfa', areaGrad: ['rgba(129,140,248,0.25)', 'rgba(129,140,248,0.02)'], tooltip: { bg: '#2a2f38', border: '#444', text: '#e2e8f0' } },
-    2: { line: '#c2703e', area: 'rgba(194,112,62,0.1)', grid: '#e8ddd0', text: '#7a6651', dot: '#a0522d', areaGrad: ['rgba(194,112,62,0.2)', 'rgba(194,112,62,0.01)'], tooltip: { bg: '#fff', border: '#e8ddd0', text: '#3d2e1f' } },
-    3: { line: '#0ea5e9', area: 'rgba(14,165,233,0.08)', grid: '#e2e8f0', text: '#94a3b8', dot: '#0284c7', areaGrad: ['rgba(14,165,233,0.15)', 'rgba(14,165,233,0.01)'], tooltip: { bg: '#fff', border: '#e2e8f0', text: '#0f172a' } },
-    4: { line: '#2d2117', area: 'rgba(45,33,23,0.06)', grid: '#d4cabb', text: '#6b6054', dot: '#5a4636', areaGrad: ['rgba(45,33,23,0.12)', 'rgba(45,33,23,0.01)'], tooltip: { bg: '#faf6ef', border: '#d4cabb', text: '#1a1a1a' } },
-    5: { line: '#a78bfa', area: 'rgba(167,139,250,0.12)', grid: 'rgba(255,255,255,0.06)', text: 'rgba(148,163,184,0.8)', dot: '#67e8f9', areaGrad: ['rgba(167,139,250,0.2)', 'rgba(103,232,249,0.02)'], tooltip: { bg: 'rgba(30,30,60,0.9)', border: 'rgba(167,139,250,0.3)', text: '#f1f5f9' } },
+    1: { line: '#818cf8', grid: '#333842', text: '#64748b', dot: '#a78bfa',
+         apiColor: 'var(--v1-accent)', oauthColor: '#fbbf24',
+         apiGrad: ['rgba(99,102,241,0.35)', 'rgba(99,102,241,0.04)'],
+         oauthGrad: ['rgba(251,191,36,0.28)', 'rgba(251,191,36,0.03)'],
+         tooltip: { bg: '#2a2f38', border: '#444', text: '#e2e8f0' },
+         dimColor: '#64748b', mono: false },
+    2: { line: '#c2703e', grid: '#e8ddd0', text: '#7a6651', dot: '#a0522d',
+         apiColor: 'var(--v2-accent)', oauthColor: '#b45309',
+         apiGrad: ['rgba(194,112,62,0.30)', 'rgba(194,112,62,0.02)'],
+         oauthGrad: ['rgba(180,83,9,0.22)', 'rgba(180,83,9,0.02)'],
+         tooltip: { bg: '#fff', border: '#e8ddd0', text: '#3d2e1f' },
+         dimColor: '#7a6651', mono: false },
+    3: { line: '#0ea5e9', grid: '#e2e8f0', text: '#94a3b8', dot: '#0284c7',
+         apiColor: 'var(--v3-accent)', oauthColor: '#f59e0b',
+         apiGrad: ['rgba(14,165,233,0.25)', 'rgba(14,165,233,0.02)'],
+         oauthGrad: ['rgba(245,158,11,0.20)', 'rgba(245,158,11,0.02)'],
+         tooltip: { bg: '#fff', border: '#e2e8f0', text: '#0f172a' },
+         dimColor: '#94a3b8', mono: true },
+    4: { line: '#2d2117', grid: '#d4cabb', text: '#6b6054', dot: '#5a4636',
+         apiColor: '#5a4636', oauthColor: '#92400e',
+         apiGrad: ['rgba(90,70,54,0.22)', 'rgba(90,70,54,0.02)'],
+         oauthGrad: ['rgba(146,64,14,0.18)', 'rgba(146,64,14,0.02)'],
+         tooltip: { bg: '#faf6ef', border: '#d4cabb', text: '#1a1a1a' },
+         dimColor: '#6b6054', mono: false },
+    5: { line: '#a78bfa', grid: 'rgba(255,255,255,0.06)', text: 'rgba(148,163,184,0.8)', dot: '#67e8f9',
+         apiColor: 'var(--v5-accent)', oauthColor: '#fbbf24',
+         apiGrad: ['rgba(167,139,250,0.30)', 'rgba(167,139,250,0.03)'],
+         oauthGrad: ['rgba(251,191,36,0.22)', 'rgba(251,191,36,0.03)'],
+         tooltip: { bg: 'rgba(30,30,60,0.9)', border: 'rgba(167,139,250,0.3)', text: '#f1f5f9' },
+         dimColor: 'rgba(148,163,184,0.8)', mono: false },
   };
   const s = schemes[variant];
-  
-  // Build points
-  const points = daily.map((d, i) => ({
-    x: padding.left + (i / (daily.length - 1)) * chartW,
-    y: padding.top + chartH - (d.cost / maxCost) * chartH,
-    data: d
+  const fontFamily = s.mono ? "'JetBrains Mono',monospace" : 'inherit';
+  const n = daily.length;
+  const xOf = i => padding.left + (i / Math.max(n - 1, 1)) * chartW;
+
+  // Build stacked point sets
+  const apiPoints = daily.map((d, i) => ({
+    x: xOf(i),
+    y: baseline - ((d.apiCost || 0) / maxCost) * chartH,
+    data: d,
   }));
-  
-  // Create path
-  let linePath = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length; i++) {
-    const cp1x = points[i-1].x + (points[i].x - points[i-1].x) * 0.4;
-    const cp1y = points[i-1].y;
-    const cp2x = points[i].x - (points[i].x - points[i-1].x) * 0.4;
-    const cp2y = points[i].y;
-    linePath += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${points[i].x} ${points[i].y}`;
+  const stackPoints = daily.map((d, i) => ({
+    x: xOf(i),
+    y: baseline - (((d.apiCost || 0) + (d.oauthCost || 0)) / maxCost) * chartH,
+    data: d,
+  }));
+
+  // Helper: build smooth bezier path through points
+  function buildLine(pts) {
+    if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+    let p = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length; i++) {
+      const dx = (pts[i].x - pts[i-1].x) * 0.4;
+      p += ` C ${pts[i-1].x + dx} ${pts[i-1].y}, ${pts[i].x - dx} ${pts[i].y}, ${pts[i].x} ${pts[i].y}`;
+    }
+    return p;
   }
-  
-  // Area path
-  const areaPath = linePath + ` L ${points[points.length-1].x} ${padding.top + chartH} L ${points[0].x} ${padding.top + chartH} Z`;
-  
+
+  // Helper: build reverse smooth bezier path (right to left) through points
+  function buildLineReverse(pts) {
+    if (pts.length === 1) return `L ${pts[0].x} ${pts[0].y}`;
+    let p = `L ${pts[pts.length-1].x} ${pts[pts.length-1].y}`;
+    for (let i = pts.length - 2; i >= 0; i--) {
+      const dx = (pts[i+1].x - pts[i].x) * 0.4;
+      p += ` C ${pts[i+1].x - dx} ${pts[i+1].y}, ${pts[i].x + dx} ${pts[i].y}, ${pts[i].x} ${pts[i].y}`;
+    }
+    return p;
+  }
+
+  const apiLine   = buildLine(apiPoints);
+  const stackLine = buildLine(stackPoints);
+
+  // API area: from baseline up to apiLine, closed back along baseline
+  const apiAreaPath = apiLine
+    + ` L ${apiPoints[n-1].x} ${baseline} L ${apiPoints[0].x} ${baseline} Z`;
+
+  // OAuth area: from top of stack down to api line, closed
+  const oauthAreaPath = stackLine
+    + buildLineReverse(apiPoints)
+    + ' Z';
+
   // Grid lines
   const gridLines = 4;
   let gridSvg = '';
   for (let i = 0; i <= gridLines; i++) {
     const y = padding.top + (i / gridLines) * chartH;
     const val = maxCost * (1 - i / gridLines);
-    gridSvg += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="${s.grid}" stroke-width="0.5" stroke-dasharray="${variant === 4 ? '4,4' : 'none'}"/>`;
-    gridSvg += `<text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" fill="${s.text}" font-size="11" font-family="${variant === 3 ? "'JetBrains Mono',monospace" : 'inherit'}">${formatCost(val)}</text>`;
+    const dash = variant === 4 ? '4,4' : 'none';
+    gridSvg += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="${s.grid}" stroke-width="0.5" stroke-dasharray="${dash}"/>`;
+    gridSvg += `<text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" fill="${s.text}" font-size="11" font-family="${fontFamily}">${formatCost(val)}</text>`;
   }
-  
+
   // X-axis labels
   let xLabels = '';
-  const labelEvery = daily.length > 10 ? 2 : 1;
+  const labelEvery = n > 10 ? 2 : 1;
   daily.forEach((d, i) => {
     if (i % labelEvery === 0) {
-      const x = padding.left + (i / (daily.length - 1)) * chartW;
-      xLabels += `<text x="${x}" y="${height - 8}" text-anchor="middle" fill="${s.text}" font-size="10" font-family="${variant === 3 ? "'JetBrains Mono',monospace" : 'inherit'}">${formatDateShort(d.date)}</text>`;
+      xLabels += `<text x="${xOf(i)}" y="${height - 8}" text-anchor="middle" fill="${s.text}" font-size="10" font-family="${fontFamily}">${formatDateShort(d.date)}</text>`;
     }
   });
-  
-  // Dots
+
+  // Dots (on total / top of stack)
   let dots = '';
-  points.forEach((p, i) => {
+  stackPoints.forEach((p, i) => {
     dots += `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${s.dot}" opacity="0" class="chart-dot" data-index="${i}" style="transition:opacity 0.15s,r 0.15s;cursor:pointer;">
       <animate attributeName="opacity" from="0" to="0.8" dur="0.3s" begin="${0.5 + i * 0.05}s" fill="freeze"/>
     </circle>`;
   });
-  
-  const gradId = `grad-${variant}`;
-  
-  container.innerHTML = `
+
+  const gradApiId   = `grad-api-${variant}`;
+  const gradOauthId = `grad-oauth-${variant}`;
+
+  // Legend HTML (inline before SVG, variant-aware styling)
+  const swatchR  = variant === 4 ? '1px' : '2px';
+  const legendFs = s.mono ? '10px' : '11px';
+  const legendHtml = `<div style="display:flex; align-items:center; gap:12px; margin-bottom:6px; padding-left:${padding.left}px;">
+    <div style="display:flex; align-items:center; gap:5px;">
+      <div style="width:10px; height:10px; border-radius:${swatchR}; background:${s.apiColor};"></div>
+      <span style="font-size:${legendFs}; font-family:${fontFamily}; color:${s.dimColor};">API</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:5px;">
+      <div style="width:10px; height:10px; border-radius:${swatchR}; background:${s.oauthColor};"></div>
+      <span style="font-size:${legendFs}; font-family:${fontFamily}; color:${s.dimColor};">OAuth</span>
+    </div>
+  </div>`;
+
+  container.innerHTML = legendHtml + `
     <svg width="${width}" height="${height}" style="display:block;">
       <defs>
-        <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="${s.areaGrad[0]}"/>
-          <stop offset="100%" stop-color="${s.areaGrad[1]}"/>
+        <linearGradient id="${gradApiId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${s.apiGrad[0]}"/>
+          <stop offset="100%" stop-color="${s.apiGrad[1]}"/>
+        </linearGradient>
+        <linearGradient id="${gradOauthId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${s.oauthGrad[0]}"/>
+          <stop offset="100%" stop-color="${s.oauthGrad[1]}"/>
         </linearGradient>
       </defs>
       ${gridSvg}
-      <path d="${areaPath}" fill="url(#${gradId})" class="chart-area-animated"/>
-      <path d="${linePath}" fill="none" stroke="${s.line}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="chart-line-animated"/>
+      <path d="${apiAreaPath}" fill="url(#${gradApiId})" class="chart-area-animated"/>
+      <path d="${oauthAreaPath}" fill="url(#${gradOauthId})" class="chart-area-animated"/>
+      <path d="${stackLine}" fill="none" stroke="${s.line}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="chart-line-animated"/>
       ${dots}
       ${xLabels}
     </svg>
     <div class="chart-tooltip" id="tooltip-${variant}" style="background:${s.tooltip.bg}; border:1px solid ${s.tooltip.border}; color:${s.tooltip.text}; padding:8px 12px; border-radius:8px; font-size:12px; box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
   `;
-  
+
   // Tooltip interactions
   const svg = container.querySelector('svg');
   const tooltip = container.querySelector('.chart-tooltip');
-  
+
   svg.querySelectorAll('.chart-dot').forEach(dot => {
-    dot.addEventListener('mouseenter', (e) => {
+    dot.addEventListener('mouseenter', () => {
       const idx = parseInt(dot.getAttribute('data-index'));
       const d = daily[idx];
       dot.setAttribute('r', '6');
       dot.style.opacity = '1';
-      tooltip.innerHTML = `<div style="font-weight:600;">${formatDate(d.date)}</div><div>Cost: ${formatCost(d.cost)}</div><div>Tokens: ${formatTokens(d.tokens)}</div><div>Sessions: ${d.sessions}</div>`;
+      tooltip.innerHTML = `
+        <div style="font-weight:600; margin-bottom:4px;">${formatDate(d.date)}</div>
+        <div>Total: ${formatCost(d.cost)}</div>
+        <div style="color:${s.apiColor};">API: ${formatCost(d.apiCost || 0)}</div>
+        <div style="color:${s.oauthColor};">OAuth: ${formatCost(d.oauthCost || 0)}</div>
+        <div style="margin-top:4px; opacity:0.75;">Tokens: ${formatTokens(d.tokens)}</div>
+        <div style="opacity:0.75;">Sessions: ${d.sessions}</div>
+      `;
       tooltip.classList.add('visible');
     });
     dot.addEventListener('mousemove', (e) => {
