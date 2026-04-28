@@ -77,3 +77,26 @@ def test_no_snapshot_falls_back_to_data_usage():
     assert rec["costUsd"] is None
     assert rec["billing"] == "api"
     assert rec["modelId"] == "claude-opus-4-6"
+
+
+def test_walk_agents_dir(tmp_path):
+    import export_usage as eu
+    # Build a fake agents dir layout
+    (tmp_path / "main" / "sessions").mkdir(parents=True)
+    (tmp_path / "coder" / "sessions").mkdir(parents=True)
+    # Trajectory file (valid)
+    (tmp_path / "main" / "sessions" / "s1.trajectory.jsonl").write_text(
+        (ROOT / "tests" / "fixtures" / "sample-codex.trajectory.jsonl").read_text()
+    )
+    # Non-trajectory file (should be skipped)
+    (tmp_path / "main" / "sessions" / "s1.jsonl").write_text("ignore me\n")
+    # Trajectory in second agent
+    (tmp_path / "coder" / "sessions" / "s2.trajectory.jsonl").write_text(
+        (ROOT / "tests" / "fixtures" / "sample-no-snapshot.trajectory.jsonl").read_text()
+    )
+
+    records = eu.walk_agents_dir(str(tmp_path))
+    # 1 from codex fixture + 1 from no-snapshot fixture = 2
+    assert len(records) == 2
+    agents = {r["agent"] for r in records}
+    assert agents == {"main", "coder"}

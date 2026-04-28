@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Export OpenClaw session usage from trajectory jsonls into a flat usage.json."""
 
+import json
+from pathlib import Path
+
 OAUTH_PROVIDERS = {"openai-codex", "claude-cli", "acpx"}
 API_PROVIDERS = {
     "anthropic", "openai", "google", "kimi",
@@ -68,6 +71,35 @@ def extract_record_from_event(event, agent):
         "workspaceDir": event.get("workspaceDir"),
     })
     return rec
+
+
+def iter_completed_events(path):
+    """Yield model.completed events from a trajectory jsonl file."""
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "model.completed":
+                yield event
+
+
+def walk_agents_dir(agents_dir):
+    """Walk agents/<agent>/sessions/*.trajectory.jsonl and return flat records."""
+    base = Path(agents_dir)
+    records = []
+    for sessions_dir in base.glob("*/sessions"):
+        agent = sessions_dir.parent.name
+        for traj in sorted(sessions_dir.glob("*.trajectory.jsonl")):
+            for event in iter_completed_events(traj):
+                rec = extract_record_from_event(event, agent=agent)
+                if rec is not None:
+                    records.append(rec)
+    return records
 
 
 def main(argv=None):
