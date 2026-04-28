@@ -356,6 +356,11 @@
 </head>
 <body>
 
+<div id="dnd-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9999; align-items:center; justify-content:center; flex-direction:column; color:#fff; font-family:system-ui; font-size:24px; pointer-events:none;">
+  <div>Drop trajectory.jsonl files or usage.json here</div>
+  <div style="font-size:14px; opacity:0.7; margin-top:8px;">Multiple files OK</div>
+</div>
+
 <!-- Keyboard Shortcut Overlay -->
 <div id="shortcut-overlay" class="shortcut-overlay">
   <div class="shortcut-card">
@@ -707,6 +712,119 @@ async function loadUsageJson() {
     console.info('[usage-tracker] data/usage.json not present; waiting for drag-and-drop');
     return null;
   }
+}
+
+function setupDragAndDrop() {
+  const overlay = document.getElementById('dnd-overlay');
+  let dragDepth = 0;
+  document.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragDepth++;
+    overlay.style.display = 'flex';
+  });
+  document.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragDepth--;
+    if (dragDepth <= 0) overlay.style.display = 'none';
+  });
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    overlay.style.display = 'none';
+    const files = Array.from(e.dataTransfer.files || []);
+    if (!files.length) return;
+    const records = await parseDroppedFiles(files);
+    if (records.length) {
+      currentData = normalizeRecords(records);
+      localStorage.setItem('ut-usage-cache', JSON.stringify(records));
+      renderAll();
+    }
+  });
+}
+
+async function parseDroppedFiles(files) {
+  const records = [];
+  for (const f of files) {
+    const text = await f.text();
+    if (f.name.endsWith('.json')) {
+      // Could be usage.json (with .records) or a raw array
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) records.push(...parsed);
+        else if (parsed && Array.isArray(parsed.records)) records.push(...parsed.records);
+      } catch (e) {
+        console.warn('[usage-tracker] failed to parse', f.name, e);
+      }
+    } else if (f.name.endsWith('.jsonl')) {
+      // trajectory jsonl: extract model.completed events client-side
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === 'model.completed') {
+            const rec = clientExtractRecord(ev, inferAgentFromFilename(f.name));
+            if (rec) records.push(rec);
+          }
+        } catch (e) { /* skip line */ }
+      }
+    }
+  }
+  return records;
+}
+
+function inferAgentFromFilename(filename) {
+  // Best-effort. Trajectory filename is just <uuid>.trajectory.jsonl with no agent.
+  // Default to 'unknown' and let the user mentally reconstruct.
+  return 'unknown';
+}
+
+function clientExtractRecord(event, agent) {
+  // Mirror of bin/export_usage.py extract_record_from_event
+  const data = event.data || {};
+  if (data.truncated) return null;
+  const snapshot = data.messagesSnapshot || [];
+  let lastAssistant = null;
+  for (let i = snapshot.length - 1; i >= 0; i--) {
+    const m = snapshot[i];
+    if (m.role === 'assistant' && m.usage) { lastAssistant = m; break; }
+  }
+  let rec;
+  if (lastAssistant) {
+    const u = lastAssistant.usage;
+    const cost = u.cost || {};
+    rec = {
+      input: u.input || 0,
+      output: u.output || 0,
+      cacheRead: u.cacheRead || 0,
+      cacheWrite: u.cacheWrite || 0,
+      totalTokens: u.totalTokens != null ? u.totalTokens : (u.input || 0) + (u.output || 0),
+      costUsd: cost.total != null ? cost.total : null,
+    };
+  } else {
+    const u = data.usage || {};
+    rec = {
+      input: u.input || 0,
+      output: u.output || 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: u.total != null ? u.total : (u.input || 0) + (u.output || 0),
+      costUsd: null,
+    };
+  }
+  const provider = event.provider || 'unknown';
+  const oauthSet = new Set(['openai-codex', 'claude-cli', 'acpx']);
+  rec.ts = event.ts;
+  rec.agent = agent;
+  rec.sessionId = event.sessionId;
+  rec.sessionKey = event.sessionKey;
+  rec.runId = event.runId;
+  rec.provider = provider;
+  rec.modelId = event.modelId;
+  rec.modelApi = event.modelApi;
+  rec.billing = oauthSet.has(provider) ? 'oauth' : 'api';
+  rec.workspaceDir = event.workspaceDir;
+  return rec;
 }
 
 function normalizeRecords(records) { return null; }
@@ -1657,6 +1775,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (savedSubs) {
     try { subscriptions = JSON.parse(savedSubs); } catch (e) {}
   }
+  setupDragAndDrop();
   // Try fetched usage.json
   const records = await loadUsageJson();
   if (records && records.length) {
