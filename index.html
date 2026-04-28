@@ -1185,56 +1185,81 @@ function renderDailyChart(containerId, data, variant) {
 function renderModelChart(containerId, data, variant) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  
+
   const models = data.modelStats;
-  const maxTokens = Math.max(...models.map(m => m.tokens), 1);
+  const maxCost = Math.max(...models.map(m => m.cost), 0.0001);
   const totalCost = models.reduce((a, m) => a + m.cost, 0);
-  
+
+  // Per-variant color config for API/OAuth segments
+  const variantCfg = {
+    1: { apiColor: 'var(--v1-accent)',  oauthColor: '#fbbf24', textColor: 'var(--v1-text)', dimColor: 'var(--v1-text-muted)', barBg: 'var(--v1-surface2)' },
+    2: { apiColor: 'var(--v2-accent)',  oauthColor: '#b45309', textColor: 'var(--v2-text)', dimColor: 'var(--v2-text-dim)' },
+    3: { apiColor: 'var(--v3-accent)',  oauthColor: '#f59e0b', textColor: 'var(--v3-text)', dimColor: 'var(--v3-text-dim)' },
+    4: { apiColor: '#5a4d3e',           oauthColor: '#92400e', textColor: 'var(--v4-text)', dimColor: 'var(--v4-text-dim)' },
+    5: { apiColor: 'var(--v5-accent)',  oauthColor: '#fbbf24', textColor: 'var(--v5-text)', dimColor: 'var(--v5-text-dim)', barBg: 'rgba(255,255,255,0.05)' },
+  };
+  const cfg = variantCfg[variant];
+
+  // Small legend swatches shared by bar-chart variants
+  function billingLegendHtml(textColor, dimColor, fontSize) {
+    const fs = fontSize || '11px';
+    return `<div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:5px;">
+        <div style="width:10px; height:10px; border-radius:2px; background:${cfg.apiColor};"></div>
+        <span style="font-size:${fs}; color:${dimColor};">API</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:5px;">
+        <div style="width:10px; height:10px; border-radius:2px; background:${cfg.oauthColor};"></div>
+        <span style="font-size:${fs}; color:${dimColor};">OAUTH</span>
+      </div>
+    </div>`;
+  }
+
   if (variant === 1 || variant === 5) {
-    // Horizontal bar chart
-    let html = '';
+    // Horizontal stacked bar chart (API + OAuth segments)
+    let html = billingLegendHtml(cfg.textColor, cfg.dimColor, '11px');
     models.forEach((m, i) => {
-      const pct = (m.tokens / maxTokens * 100);
-      const color = modelColors[m.model] || '#94a3b8';
-      const costPct = totalCost > 0 ? (m.cost / totalCost * 100).toFixed(1) : '0.0';
-      const textColor = variant === 1 ? 'var(--v1-text)' : 'var(--v5-text)';
-      const dimColor = variant === 1 ? 'var(--v1-text-muted)' : 'var(--v5-text-dim)';
-      const barBg = variant === 1 ? 'var(--v1-surface2)' : 'rgba(255,255,255,0.05)';
-      
+      const totalPct  = maxCost > 0 ? (m.cost      / maxCost * 100) : 0;
+      const apiPct    = maxCost > 0 ? ((m.apiCost   || 0) / maxCost * 100) : 0;
+      const oauthPct  = maxCost > 0 ? ((m.oauthCost || 0) / maxCost * 100) : 0;
+      const costPct   = totalCost > 0 ? (m.cost / totalCost * 100).toFixed(1) : '0.0';
+      const color     = modelColors[m.model] || '#94a3b8';
+
       html += `
         <div style="margin-bottom:16px;" class="animate-slide-right stagger-${i+1}">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <div style="display:flex; align-items:center; gap:8px;">
               <div style="width:10px; height:10px; border-radius:3px; background:${color};"></div>
-              <span style="font-size:13px; font-weight:500; color:${textColor};">${m.model}</span>
+              <span style="font-size:13px; font-weight:500; color:${cfg.textColor};">${m.model}</span>
             </div>
-            <span style="font-size:12px; color:${dimColor};">${formatCost(m.cost)} (${costPct}%)</span>
+            <span style="font-size:12px; color:${cfg.dimColor};" title="Total: ${formatCost(m.cost)} | API: ${formatCost(m.apiCost||0)} | OAuth: ${formatCost(m.oauthCost||0)} | Tokens: ${formatTokens(m.tokens)} | Sessions: ${m.sessions}">${formatCost(m.cost)} (${costPct}%)</span>
           </div>
-          <div style="height:8px; background:${barBg}; border-radius:4px; overflow:hidden;">
-            <div style="height:100%; width:${pct}%; background:${color}; border-radius:4px; transition:width 0.8s ease;" class="animate-fade-in stagger-${i+2}"></div>
+          <div style="height:8px; background:${cfg.barBg}; border-radius:4px; overflow:hidden; display:flex;">
+            <div style="height:100%; width:${apiPct}%; background:${cfg.apiColor}; transition:width 0.8s ease;" class="animate-fade-in stagger-${i+2}"></div>
+            <div style="height:100%; width:${oauthPct}%; background:${cfg.oauthColor}; transition:width 0.8s ease;" class="animate-fade-in stagger-${i+2}"></div>
           </div>
-          <div style="font-size:11px; color:${dimColor}; margin-top:4px;">${formatTokens(m.tokens)} tokens · ${m.sessions} sessions</div>
+          <div style="font-size:11px; color:${cfg.dimColor}; margin-top:4px;">${formatTokens(m.tokens)} tokens · ${m.sessions} sessions · API ${formatCost(m.apiCost||0)} / OAuth ${formatCost(m.oauthCost||0)}</div>
         </div>
       `;
     });
     container.innerHTML = html;
-    
+
   } else if (variant === 2 || variant === 4) {
-    // Donut chart
+    // Donut chart (token-based segments per model) + API/OAuth legend per model row
     const size = 180;
     const cx = size / 2, cy = size / 2;
     const outerR = size / 2 - 10;
     const innerR = outerR * 0.6;
-    
+
     let paths = '';
     let startAngle = -Math.PI / 2;
     const totalTokensAll = models.reduce((a, m) => a + m.tokens, 0);
-    
+
     models.forEach((m, i) => {
       const fraction = m.tokens / totalTokensAll;
       const angle = fraction * Math.PI * 2;
       const endAngle = startAngle + angle;
-      
+
       const x1 = cx + outerR * Math.cos(startAngle);
       const y1 = cy + outerR * Math.sin(startAngle);
       const x2 = cx + outerR * Math.cos(endAngle);
@@ -1243,69 +1268,104 @@ function renderModelChart(containerId, data, variant) {
       const y3 = cy + innerR * Math.sin(endAngle);
       const x4 = cx + innerR * Math.cos(startAngle);
       const y4 = cy + innerR * Math.sin(startAngle);
-      
+
       const largeArc = angle > Math.PI ? 1 : 0;
       const color = modelColors[m.model] || '#94a3b8';
-      
-      paths += `<path d="M ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${largeArc} 0 ${x4} ${y4} Z" fill="${color}" opacity="0.85" style="transition:opacity 0.2s;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.85'"/>`;
-      
+      const tooltipTitle = `Total: ${formatCost(m.cost)} | API: ${formatCost(m.apiCost||0)} | OAuth: ${formatCost(m.oauthCost||0)} | Tokens: ${formatTokens(m.tokens)} | Sessions: ${m.sessions}`;
+
+      paths += `<path d="M ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${largeArc} 0 ${x4} ${y4} Z" fill="${color}" opacity="0.85" style="transition:opacity 0.2s; cursor:default;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.85'"><title>${tooltipTitle}</title></path>`;
+
       startAngle = endAngle;
     });
-    
-    const textColor = variant === 2 ? 'var(--v2-text)' : 'var(--v4-text)';
-    const dimColor = variant === 2 ? 'var(--v2-text-dim)' : 'var(--v4-text-dim)';
-    
-    let legend = '';
+
+    // Billing legend (API / OAuth swatches)
+    const swatchR = variant === 4 ? '1px' : '2px';
+    const legendHeaderHtml = `<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+      <div style="display:flex; align-items:center; gap:4px;">
+        <div style="width:9px; height:9px; border-radius:${swatchR}; background:${cfg.apiColor};"></div>
+        <span style="font-size:10px; color:${cfg.dimColor};">API</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <div style="width:9px; height:9px; border-radius:${swatchR}; background:${cfg.oauthColor};"></div>
+        <span style="font-size:10px; color:${cfg.dimColor};">OAUTH</span>
+      </div>
+    </div>`;
+
+    let legend = legendHeaderHtml;
     models.forEach(m => {
       const color = modelColors[m.model] || '#94a3b8';
       const pct = totalTokensAll > 0 ? (m.tokens / totalTokensAll * 100).toFixed(1) : '0.0';
       legend += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <div style="width:10px; height:10px; border-radius:${variant === 4 ? '1px' : '3px'}; background:${color}; flex-shrink:0;"></div>
         <div style="flex:1;">
-          <div style="font-size:13px; color:${textColor};">${m.model}</div>
-          <div style="font-size:11px; color:${dimColor};">${formatTokens(m.tokens)} · ${formatCost(m.cost)} · ${pct}%</div>
+          <div style="font-size:13px; color:${cfg.textColor};">${m.model}</div>
+          <div style="font-size:11px; color:${cfg.dimColor};">${formatTokens(m.tokens)} · ${formatCost(m.cost)} · ${pct}%</div>
+          <div style="font-size:10px; color:${cfg.dimColor}; margin-top:1px;">
+            <span style="color:${cfg.apiColor};">API ${formatCost(m.apiCost||0)}</span>
+            <span style="margin:0 4px;">·</span>
+            <span style="color:${cfg.oauthColor};">OAuth ${formatCost(m.oauthCost||0)}</span>
+          </div>
         </div>
       </div>`;
     });
-    
+
     container.innerHTML = `
       <div style="display:flex; align-items:center; gap:32px;">
         <svg width="${size}" height="${size}" style="flex-shrink:0;">
           ${paths}
-          <text x="${cx}" y="${cy - 6}" text-anchor="middle" fill="${textColor}" font-size="16" font-weight="600">${formatCost(totalCost)}</text>
-          <text x="${cx}" y="${cy + 12}" text-anchor="middle" fill="${dimColor}" font-size="11">total</text>
+          <text x="${cx}" y="${cy - 6}" text-anchor="middle" fill="${cfg.textColor}" font-size="16" font-weight="600">${formatCost(totalCost)}</text>
+          <text x="${cx}" y="${cy + 12}" text-anchor="middle" fill="${cfg.dimColor}" font-size="11">total</text>
         </svg>
         <div>${legend}</div>
       </div>
     `;
-    
+
   } else if (variant === 3) {
-    // Minimal stacked bars
+    // Minimal stacked bars (API + OAuth segments per model row)
     const totalTokensAll = models.reduce((a, m) => a + m.tokens, 0);
-    let html = `<div style="display:flex; height:8px; border-radius:2px; overflow:hidden; margin-bottom:16px;">`;
+
+    // Legend
+    let html = `<div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+      <div style="display:flex; align-items:center; gap:4px;">
+        <div style="width:8px; height:8px; border-radius:1px; background:${cfg.apiColor};"></div>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.5px; color:${cfg.dimColor};">API</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <div style="width:8px; height:8px; border-radius:1px; background:${cfg.oauthColor};"></div>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.5px; color:${cfg.dimColor};">OAUTH</span>
+      </div>
+    </div>`;
+
     models.forEach(m => {
-      const pct = (m.tokens / totalTokensAll * 100);
+      const tokenPct = totalTokensAll > 0 ? (m.tokens / totalTokensAll * 100).toFixed(1) : '0.0';
+      const apiBarPct   = maxCost > 0 ? ((m.apiCost   || 0) / maxCost * 100) : 0;
+      const oauthBarPct = maxCost > 0 ? ((m.oauthCost || 0) / maxCost * 100) : 0;
       const color = modelColors[m.model] || '#94a3b8';
-      html += `<div style="width:${pct}%; background:${color}; transition:width 0.8s ease;"></div>`;
-    });
-    html += `</div>`;
-    
-    models.forEach(m => {
-      const pct = totalTokensAll > 0 ? (m.tokens / totalTokensAll * 100).toFixed(1) : '0.0';
-      const color = modelColors[m.model] || '#94a3b8';
-      html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--v3-border);">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="width:8px; height:8px; border-radius:1px; background:${color};"></div>
-          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--v3-text);">${m.model}</span>
+
+      html += `<div style="padding:8px 0; border-bottom:1px solid var(--v3-border);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="width:8px; height:8px; border-radius:1px; background:${color};"></div>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--v3-text);">${m.model}</span>
+          </div>
+          <div style="display:flex; gap:12px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--v3-text-dim);">
+            <span>${formatTokens(m.tokens)}</span>
+            <span>${formatCost(m.cost)}</span>
+            <span>${tokenPct}%</span>
+          </div>
         </div>
-        <div style="display:flex; gap:16px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--v3-text-dim);">
-          <span>${formatTokens(m.tokens)}</span>
-          <span>${formatCost(m.cost)}</span>
-          <span>${pct}%</span>
+        <div style="height:4px; background:var(--v3-border); border-radius:1px; overflow:hidden; display:flex;">
+          <div style="height:100%; width:${apiBarPct}%; background:${cfg.apiColor}; transition:width 0.8s ease;"></div>
+          <div style="height:100%; width:${oauthBarPct}%; background:${cfg.oauthColor}; transition:width 0.8s ease;"></div>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--v3-text-dim); margin-top:3px;">
+          <span style="color:${cfg.apiColor};">API ${formatCost(m.apiCost||0)}</span>
+          <span style="margin:0 6px;">·</span>
+          <span style="color:${cfg.oauthColor};">OAUTH ${formatCost(m.oauthCost||0)}</span>
         </div>
       </div>`;
     });
-    
+
     container.innerHTML = html;
   }
 }
