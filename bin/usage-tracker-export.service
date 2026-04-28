@@ -1,0 +1,15 @@
+# systemd --user unit. Not enabled by default.
+# Install:
+#   cp bin/usage-tracker-export.service ~/.config/systemd/user/
+#   cp bin/usage-tracker-export.timer   ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now usage-tracker-export.timer
+
+[Unit]
+Description=Refresh usage-tracker data/usage.json from OpenClaw sessions
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env python3 %h/repos/usage-tracker/bin/export_usage.py --since 30d
+# Adjust the path above to wherever you cloned this repo.

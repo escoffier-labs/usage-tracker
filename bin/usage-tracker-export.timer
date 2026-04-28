@@ -1,0 +1,13 @@
+# systemd --user timer. Pairs with usage-tracker-export.service.
+# See the service file for install instructions.
+
+[Unit]
+Description=Run usage-tracker exporter every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=usage-tracker-export.service
+
+[Install]
+WantedBy=timers.target
