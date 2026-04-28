@@ -827,7 +827,150 @@ function clientExtractRecord(event, agent) {
   return rec;
 }
 
-function normalizeRecords(records) { return null; }
+function normalizeRecords(records) {
+  // Each record is one model.completed event (one "call").
+  // Build the data shape renderers expect, plus new api/oauth split fields.
+
+  // Map raw → renderer-compatible call shape (preserve `sessions[]` field name
+  // so existing renderers keep working; each entry is still a single call).
+  const calls = records.map(r => ({
+    id: r.sessionId + ':' + r.ts,        // unique per call
+    sessionId: r.sessionId,
+    shortId: (r.sessionId || '').slice(0, 8),
+    timestamp: r.ts,
+    date: (r.ts || '').slice(0, 10),
+    label: r.sessionKey,                 // human-readable session identifier
+    agent: r.agent,
+    model: r.modelId,
+    provider: r.provider,
+    billing: r.billing,
+    usage: {
+      input: r.input,
+      output: r.output,
+      cacheRead: r.cacheRead || 0,
+      cacheWrite: r.cacheWrite || 0,
+      totalTokens: r.totalTokens || 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: r.costUsd || 0,
+      },
+    },
+  }));
+
+  // Sort newest-first
+  calls.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+
+  // Aggregates
+  const sumCost = (filt) => calls.filter(filt).reduce((a, c) => a + c.usage.cost.total, 0);
+  const sumTokens = (filt) => calls.filter(filt).reduce((a, c) => a + c.usage.totalTokens, 0);
+
+  const totalCost = sumCost(() => true);
+  const apiCost = sumCost(c => c.billing === 'api');
+  const oauthCost = sumCost(c => c.billing === 'oauth');
+  const totalTokens = sumTokens(() => true);
+  const totalCacheRead = calls.reduce((a, c) => a + (c.usage.cacheRead || 0), 0);
+  const totalCacheWrite = calls.reduce((a, c) => a + (c.usage.cacheWrite || 0), 0);
+  const cacheHitRate = (totalCacheRead + totalCacheWrite) > 0
+    ? (totalCacheRead / (totalCacheRead + totalCacheWrite) * 100) : 0;
+  const activeModels = [...new Set(calls.map(c => c.model).filter(Boolean))];
+
+  // Week-over-week
+  const now = new Date();
+  const thisWeekStart = new Date(now); thisWeekStart.setDate(now.getDate() - now.getDay()); thisWeekStart.setHours(0,0,0,0);
+  const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  let thisWeekCost = 0, lastWeekCost = 0, thisWeekTokens = 0, lastWeekTokens = 0, thisWeekSessions = 0, lastWeekSessions = 0;
+  calls.forEach(c => {
+    const t = new Date(c.timestamp);
+    if (t >= thisWeekStart) { thisWeekCost += c.usage.cost.total; thisWeekTokens += c.usage.totalTokens; thisWeekSessions++; }
+    else if (t >= lastWeekStart && t < thisWeekStart) { lastWeekCost += c.usage.cost.total; lastWeekTokens += c.usage.totalTokens; lastWeekSessions++; }
+  });
+  const pct = (a, b) => b > 0 ? ((a - b) / b * 100) : 0;
+  const costChange = pct(thisWeekCost, lastWeekCost);
+  const tokenChange = pct(thisWeekTokens, lastWeekTokens);
+  const sessionChange = pct(thisWeekSessions, lastWeekSessions);
+
+  // Model breakdown (split by billing)
+  const modelStats = {};
+  calls.forEach(c => {
+    const k = c.model || 'unknown';
+    if (!modelStats[k]) modelStats[k] = { model: k, provider: c.provider, billing: c.billing, tokens: 0, cost: 0, apiCost: 0, oauthCost: 0, sessions: 0 };
+    modelStats[k].tokens += c.usage.totalTokens;
+    modelStats[k].cost += c.usage.cost.total;
+    if (c.billing === 'api') modelStats[k].apiCost += c.usage.cost.total;
+    else modelStats[k].oauthCost += c.usage.cost.total;
+    modelStats[k].sessions++;
+  });
+
+  // Provider breakdown (kept for renderProviders compatibility, but augmented with billing)
+  const providerStats = {};
+  calls.forEach(c => {
+    const k = c.provider || 'unknown';
+    if (!providerStats[k]) providerStats[k] = { provider: k, billing: c.billing, tokens: 0, cost: 0, apiCost: 0, oauthCost: 0, sessions: 0, models: new Set() };
+    providerStats[k].tokens += c.usage.totalTokens;
+    providerStats[k].cost += c.usage.cost.total;
+    if (c.billing === 'api') providerStats[k].apiCost += c.usage.cost.total;
+    else providerStats[k].oauthCost += c.usage.cost.total;
+    providerStats[k].sessions++;
+    if (c.model) providerStats[k].models.add(c.model);
+  });
+
+  // NEW: agent breakdown
+  const agentStats = {};
+  calls.forEach(c => {
+    const k = c.agent || 'unknown';
+    if (!agentStats[k]) agentStats[k] = { agent: k, tokens: 0, cost: 0, apiCost: 0, oauthCost: 0, sessions: 0, models: new Set() };
+    agentStats[k].tokens += c.usage.totalTokens;
+    agentStats[k].cost += c.usage.cost.total;
+    if (c.billing === 'api') agentStats[k].apiCost += c.usage.cost.total;
+    else agentStats[k].oauthCost += c.usage.cost.total;
+    agentStats[k].sessions++;
+    if (c.model) agentStats[k].models.add(c.model);
+  });
+
+  // NEW: session-thread groups (group calls by sessionId)
+  const sessionGroups = {};
+  calls.forEach(c => {
+    const k = c.sessionId || c.id;
+    if (!sessionGroups[k]) sessionGroups[k] = { sessionId: k, sessionKey: c.label, agent: c.agent, firstTs: c.timestamp, lastTs: c.timestamp, calls: [], tokens: 0, cost: 0, apiCost: 0, oauthCost: 0, models: new Set() };
+    const g = sessionGroups[k];
+    g.calls.push(c);
+    g.tokens += c.usage.totalTokens;
+    g.cost += c.usage.cost.total;
+    if (c.billing === 'api') g.apiCost += c.usage.cost.total;
+    else g.oauthCost += c.usage.cost.total;
+    g.models.add(c.model);
+    if (c.timestamp < g.firstTs) g.firstTs = c.timestamp;
+    if (c.timestamp > g.lastTs) g.lastTs = c.timestamp;
+  });
+
+  // Daily series (split api vs oauth)
+  const dailyData = {};
+  calls.forEach(c => {
+    const d = c.date;
+    if (!d) return;
+    if (!dailyData[d]) dailyData[d] = { cost: 0, apiCost: 0, oauthCost: 0, tokens: 0, sessions: 0 };
+    dailyData[d].cost += c.usage.cost.total;
+    if (c.billing === 'api') dailyData[d].apiCost += c.usage.cost.total;
+    else dailyData[d].oauthCost += c.usage.cost.total;
+    dailyData[d].tokens += c.usage.totalTokens;
+    dailyData[d].sessions++;
+  });
+
+  return {
+    sessions: calls,        // NOTE: each entry is a single call. Renderers compatible.
+    sessionGroups,          // NEW: grouped by thread
+    totalCost, apiCost, oauthCost,
+    totalTokens, totalCacheRead, totalCacheWrite, cacheHitRate, activeModels,
+    thisWeekCost, lastWeekCost, thisWeekTokens, lastWeekTokens, thisWeekSessions, lastWeekSessions,
+    costChange, tokenChange, sessionChange,
+    modelStats, providerStats,
+    agentStats,             // NEW
+    dailyData,
+  };
+}
 
 // Provider colors
 const providerColors = {
