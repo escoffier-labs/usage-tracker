@@ -1858,7 +1858,7 @@ function renderSessions(containerId, data, variant) {
           <span style="font-size:10px; color:var(--v3-text-dim); flex-shrink:0;">${modelLabel}</span>
         </div>
         <div style="display:flex; gap:16px; font-family:'JetBrains Mono',monospace; font-size:11px; flex-shrink:0;">
-          <span style="color:var(--v3-text-dim);">${formatDate(s.firstTs)}</span>
+          <span style="color:var(--v3-text-dim);">${formatTimestamp(s.firstTs)}</span>
           <span style="color:var(--v3-text-dim);">${callsArr.length}c</span>
           <span style="color:var(--v3-text-dim);">${formatTokens(s.tokens)}</span>
           <span style="color:var(--v3-text-dim);">A:${formatCost(s.apiCost)}</span>
