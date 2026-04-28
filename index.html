@@ -447,7 +447,13 @@
       <h3 style="font-size:15px; font-weight:600; margin:0 0 16px 0; color:var(--v1-text);">Provider Summary</h3>
       <div id="v1-providers" style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px;"></div>
     </div>
-    
+
+    <!-- Per Agent -->
+    <div class="card animate-fade-up stagger-7" style="margin-bottom:28px;">
+      <h3 style="font-size:15px; font-weight:600; margin:0 0 16px 0; color:var(--v1-text);">Per Agent</h3>
+      <div id="v1-agents" style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px;"></div>
+    </div>
+
     <!-- Session Ranking -->
     <div class="card animate-fade-up stagger-8">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -502,7 +508,13 @@
         <div id="v2-providers"></div>
       </div>
     </div>
-    
+
+    <!-- Per Agent -->
+    <div class="card animate-fade-up stagger-7" style="margin-bottom:36px;">
+      <h2 style="font-family:'Newsreader',serif; font-size:22px; font-weight:500; margin:0 0 20px 0; color:var(--v2-text);">Per Agent</h2>
+      <div id="v2-agents"></div>
+    </div>
+
     <!-- Sessions -->
     <div class="card animate-fade-up stagger-8">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -557,7 +569,13 @@
       <h3 style="font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--v3-text-dim); margin:0 0 16px 0;">Providers</h3>
       <div id="v3-providers" style="display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--v3-border); border:1px solid var(--v3-border);"></div>
     </div>
-    
+
+    <!-- Agents -->
+    <div class="animate-fade-up stagger-7" style="margin-bottom:48px;">
+      <h3 style="font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--v3-text-dim); margin:0 0 16px 0;">Agents</h3>
+      <div id="v3-agents" style="display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--v3-border); border:1px solid var(--v3-border);"></div>
+    </div>
+
     <!-- Sessions -->
     <div class="animate-fade-up stagger-8">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -606,7 +624,13 @@
         <div id="v4-providers"></div>
       </div>
     </div>
-    
+
+    <!-- Per Agent -->
+    <div class="card animate-fade-up stagger-7" style="margin-bottom:36px;">
+      <h3 style="font-family:'Playfair Display',serif; font-size:20px; font-weight:400; margin:0 0 20px 0; color:var(--v4-text);">Agent Register</h3>
+      <div id="v4-agents"></div>
+    </div>
+
     <!-- Sessions -->
     <div class="card animate-fade-up stagger-8">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -667,7 +691,13 @@
       <h3 style="font-size:15px; font-weight:700; margin:0 0 16px 0; color:var(--v5-text);">Providers</h3>
       <div id="v5-providers" style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px;"></div>
     </div>
-    
+
+    <!-- Per Agent -->
+    <div class="card animate-fade-up stagger-7" style="margin-bottom:28px;">
+      <h3 style="font-size:15px; font-weight:700; margin:0 0 16px 0; color:var(--v5-text);">Per Agent</h3>
+      <div id="v5-agents" style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px;"></div>
+    </div>
+
     <div class="card animate-fade-up stagger-8">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h3 style="font-size:15px; font-weight:700; margin:0; color:var(--v5-text);">Sessions</h3>
@@ -959,15 +989,21 @@ function normalizeRecords(records) {
     dailyData[d].sessions++;
   });
 
+  const arrify = (statsObj) =>
+    Object.values(statsObj)
+      .map(s => ({ ...s, models: s.models ? [...s.models] : [] }))
+      .sort((a, b) => b.cost - a.cost);
+
   return {
-    sessions: calls,        // NOTE: each entry is a single call. Renderers compatible.
-    sessionGroups,          // NEW: grouped by thread
+    sessions: calls,
+    sessionGroups,
     totalCost, apiCost, oauthCost,
     totalTokens, totalCacheRead, totalCacheWrite, cacheHitRate, activeModels,
     thisWeekCost, lastWeekCost, thisWeekTokens, lastWeekTokens, thisWeekSessions, lastWeekSessions,
     costChange, tokenChange, sessionChange,
-    modelStats, providerStats,
-    agentStats,             // NEW
+    modelStats: arrify(modelStats),
+    providerStats: arrify(providerStats),
+    agentStats: arrify(agentStats),
     dailyData,
   };
 }
@@ -1392,6 +1428,94 @@ function renderSummaryCards(containerId, data, variant) {
 // RENDER PROVIDERS
 // ============================================
 
+// ============================================
+// RENDER AGENTS
+// ============================================
+function renderAgents(containerId, data, variant) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const agents = data.agentStats;
+
+  if (variant === 1 || variant === 5) {
+    const bgColor = variant === 1 ? 'var(--v1-surface2)' : 'rgba(255,255,255,0.04)';
+    const textColor = variant === 1 ? 'var(--v1-text)' : 'var(--v5-text)';
+    const dimColor = variant === 1 ? 'var(--v1-text-muted)' : 'var(--v5-text-dim)';
+    const borderColor = variant === 1 ? 'var(--v1-border)' : 'var(--v5-border)';
+    const radius = variant === 1 ? '12px' : '16px';
+
+    container.innerHTML = agents.map(a => {
+      return `<div style="background:${bgColor}; border:1px solid ${borderColor}; border-radius:${radius}; padding:16px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${dimColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span style="font-size:14px; font-weight:600; color:${textColor};">${a.agent}</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div>
+            <div style="font-size:11px; color:${dimColor};">Total Cost</div>
+            <div style="font-size:16px; font-weight:600; color:${textColor};">${formatCost(a.cost)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:${dimColor};">Tokens</div>
+            <div style="font-size:16px; font-weight:600; color:${textColor};">${formatTokens(a.tokens)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:${dimColor};">API $</div>
+            <div style="font-size:13px; font-weight:500; color:#818cf8;">${formatCost(a.apiCost)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:${dimColor};">OAuth $</div>
+            <div style="font-size:13px; font-weight:500; color:#fbbf24;">${formatCost(a.oauthCost)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:${dimColor};">Sessions</div>
+            <div style="font-size:14px; font-weight:500; color:${textColor};">${a.sessions}</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:${dimColor};">Models</div>
+            <div style="font-size:14px; font-weight:500; color:${textColor};">${a.models.length}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } else if (variant === 2) {
+    container.innerHTML = agents.map(a => {
+      return `<div style="padding:20px 0; border-bottom:1px solid var(--v2-border);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-family:'Newsreader',serif; font-size:18px; color:var(--v2-text);">Agent: ${a.agent}</span>
+          <span style="font-family:'Newsreader',serif; font-size:20px; color:var(--v2-text);">${formatCost(a.cost)}</span>
+        </div>
+        <div style="font-size:13px; color:var(--v2-text-dim);">${formatTokens(a.tokens)} tokens · ${a.sessions} sessions · ${a.models.length} model${a.models.length !== 1 ? 's' : ''} · API: <span style="color:#6366f1;">${formatCost(a.apiCost)}</span> · OAuth: <span style="color:#d97706;">${formatCost(a.oauthCost)}</span></div>
+      </div>`;
+    }).join('');
+  } else if (variant === 3) {
+    container.innerHTML = agents.map(a => {
+      return `<div style="background:var(--v3-bg); padding:16px 20px;">
+        <div style="margin-bottom:8px;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; letter-spacing:1px; color:var(--v3-text-dim);">[${a.agent}]</span>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--v3-text); margin-bottom:4px;">${formatCost(a.cost)}</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--v3-text-dim);">${formatTokens(a.tokens)} · ${a.sessions}s · ${a.models.length}m</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10px; margin-top:4px;"><span style="color:#818cf8;">API:${formatCost(a.apiCost)}</span> <span style="color:#d97706;">OA:${formatCost(a.oauthCost)}</span></div>
+      </div>`;
+    }).join('');
+  } else if (variant === 4) {
+    container.innerHTML = agents.map(a => {
+      return `<div style="padding:16px 0; border-bottom:1px dashed var(--v4-border);">
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+          <span style="font-family:'Playfair Display',serif; font-size:17px; color:var(--v4-text); font-style:italic;">${a.agent}</span>
+          <span style="font-size:18px; color:var(--v4-text);">${formatCost(a.cost)}</span>
+        </div>
+        <div style="font-size:13px; color:var(--v4-text-dim); margin-top:4px;">${formatTokens(a.tokens)} tokens · ${a.sessions} sessions · ${a.models.length} model${a.models.length !== 1 ? 's' : ''}</div>
+        <div style="font-size:12px; margin-top:4px; color:var(--v4-text-dim);">API: <span style="color:#4f46e5;">${formatCost(a.apiCost)}</span> &nbsp; OAuth: <span style="color:#b45309;">${formatCost(a.oauthCost)}</span></div>
+      </div>`;
+    }).join('');
+  }
+}
+
+// ============================================
+// RENDER PROVIDERS
+// ============================================
 function renderProviders(containerId, data, variant) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -1414,12 +1538,20 @@ function renderProviders(containerId, data, variant) {
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           <div>
-            <div style="font-size:11px; color:${dimColor};">Cost</div>
+            <div style="font-size:11px; color:${dimColor};">Total Cost</div>
             <div style="font-size:16px; font-weight:600; color:${textColor};">${formatCost(p.cost)}</div>
           </div>
           <div>
             <div style="font-size:11px; color:${dimColor};">Tokens</div>
             <div style="font-size:16px; font-weight:600; color:${textColor};">${formatTokens(p.tokens)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:${dimColor};">API $</div>
+            <div style="font-size:13px; font-weight:500; color:#818cf8;">${formatCost(p.apiCost)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:${dimColor};">OAuth $</div>
+            <div style="font-size:13px; font-weight:500; color:#fbbf24;">${formatCost(p.oauthCost)}</div>
           </div>
           <div>
             <div style="font-size:11px; color:${dimColor};">Sessions</div>
@@ -1443,7 +1575,7 @@ function renderProviders(containerId, data, variant) {
           </div>
           <span style="font-family:'Newsreader',serif; font-size:20px; color:var(--v2-text);">${formatCost(p.cost)}</span>
         </div>
-        <div style="font-size:13px; color:var(--v2-text-dim);">${formatTokens(p.tokens)} tokens · ${p.sessions} sessions · ${p.models.join(', ')}</div>
+        <div style="font-size:13px; color:var(--v2-text-dim);">${formatTokens(p.tokens)} tokens · ${p.sessions} sessions · API: <span style="color:#6366f1;">${formatCost(p.apiCost)}</span> · OAuth: <span style="color:#d97706;">${formatCost(p.oauthCost)}</span></div>
       </div>`;
     }).join('');
   } else if (variant === 3) {
@@ -1456,6 +1588,7 @@ function renderProviders(containerId, data, variant) {
         </div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--v3-text); margin-bottom:4px;">${formatCost(p.cost)}</div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--v3-text-dim);">${formatTokens(p.tokens)} · ${p.sessions}s · ${p.models.length}m</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10px; margin-top:4px;"><span style="color:#818cf8;">API:${formatCost(p.apiCost)}</span> <span style="color:#d97706;">OA:${formatCost(p.oauthCost)}</span></div>
       </div>`;
     }).join('');
   } else if (variant === 4) {
@@ -1470,6 +1603,7 @@ function renderProviders(containerId, data, variant) {
           <span style="font-size:18px; color:var(--v4-text);">${formatCost(p.cost)}</span>
         </div>
         <div style="font-size:13px; color:var(--v4-text-dim); margin-top:4px; font-style:italic;">${formatTokens(p.tokens)} tokens across ${p.sessions} sessions</div>
+        <div style="font-size:12px; margin-top:4px; color:var(--v4-text-dim);">API: <span style="color:#4f46e5;">${formatCost(p.apiCost)}</span> &nbsp; OAuth: <span style="color:#b45309;">${formatCost(p.oauthCost)}</span></div>
       </div>`;
     }).join('');
   }
@@ -1803,6 +1937,7 @@ function renderAll() {
   renderDailyChart(`${prefix}-daily-chart`, currentData, v);
   renderModelChart(`${prefix}-model-chart`, currentData, v);
   renderProviders(`${prefix}-providers`, currentData, v);
+  renderAgents(`${prefix}-agents`, currentData, v);
   renderSessions(`${prefix}-sessions`, currentData, v);
   
 }
