@@ -694,6 +694,23 @@ const defaultSubscriptions = [
 let subscriptions = JSON.parse(localStorage.getItem('ut-subscriptions') || 'null') || defaultSubscriptions;
 let subEditMode = false;
 
+// ============================================
+// DATA LOADER (fetch + drag-and-drop)
+// ============================================
+async function loadUsageJson() {
+  try {
+    const res = await fetch('./data/usage.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('not found');
+    const payload = await res.json();
+    return payload.records || [];
+  } catch (e) {
+    console.info('[usage-tracker] data/usage.json not present; waiting for drag-and-drop');
+    return null;
+  }
+}
+
+function normalizeRecords(records) { return null; }
+
 // Provider colors
 const providerColors = {
   anthropic: { primary: '#818cf8', secondary: '#6366f1', bg: 'rgba(129,140,248,0.12)', label: 'Anthropic' },
@@ -1634,9 +1651,28 @@ window.addEventListener('resize', () => {
 // ============================================
 // INITIALIZATION
 // ============================================
-document.addEventListener('DOMContentLoaded', () => {
-  currentData = null;
-  renderAll();
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load saved subscriptions first (existing behavior)
+  const savedSubs = localStorage.getItem('ut-subscriptions');
+  if (savedSubs) {
+    try { subscriptions = JSON.parse(savedSubs); } catch (e) {}
+  }
+  // Try fetched usage.json
+  const records = await loadUsageJson();
+  if (records && records.length) {
+    currentData = normalizeRecords(records);
+    renderAll();
+  } else {
+    // Try cached payload from localStorage
+    const cached = localStorage.getItem('ut-usage-cache');
+    if (cached) {
+      try {
+        const recs = JSON.parse(cached);
+        currentData = normalizeRecords(recs);
+        renderAll();
+      } catch (e) { /* show empty state */ }
+    }
+  }
   handleHash();
 
   // Initialize Lucide icons
