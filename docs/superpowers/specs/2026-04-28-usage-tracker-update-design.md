@@ -172,6 +172,31 @@ usage-tracker/
 - **UI:** smoke-test in browser with a small `usage.json` (10-20 records covering 2-3 agents, 3-4 models, both billing types). Verify each panel renders, filters narrow correctly, drill-down opens, themes switch cleanly.
 - **No backend regression:** confirm `python3 -m http.server` and direct `file://` open both work.
 
+## Amendments (2026-04-28, post initial approval)
+
+### A1. Variants stay (all 5)
+
+Initial design assumed "5 themes" were CSS palette swaps. The existing `index.html` actually implements 5 entirely distinct design **variants** (`#variant-1` through `#variant-5`), each with its own CSS and its own per-component render functions (`renderDailyChart(containerId, data, variant)` etc.). User decided to keep all 5 plumbed with real data and pick a favorite later. Implication: every render function gets updated for the new data shape, but the variant-switcher UI and 5-design structure stay intact.
+
+### A2. Subscription settings stay (per-session manual entry still dropped)
+
+Per-session manual entry form is still dropped (everything per-call comes from `usage.json`). However, the existing **subscription settings panel** (where the user configures plan name + monthly $ cost for things like Codex Pro, Claude Max) stays. Subscription costs cannot be derived from session jsonls and are needed to compute ROI ("you extracted $X of equivalent API value out of $Y of subscription cost"). Storage stays in localStorage. UI is a small inline-edit settings panel, present in each variant.
+
+The MTD summary in each variant now includes a third tile (or equivalent panel position):
+
+1. **API spend** - real $
+2. **OAuth value extracted** - notional $
+3. **Subscription ROI** - sum(OAuth value) / sum(active subscription monthly costs), shown as a multiplier (e.g. "4.25x") with the underlying numbers
+
+### A3. Removed list updated
+
+The "What gets removed" list now reads:
+
+- Demo toggle button and all demo seed data arrays
+- Hardcoded 3-model pricing catalog (replaced by costs computed by OpenClaw and read from trajectory events)
+- **Per-session** manual entry form (subscription settings panel stays - see A2)
+- Vercel deployment metadata, README quick-start references to the demo URL
+
 ## Open questions
 
-None - all design decisions confirmed in brainstorming.
+None.
