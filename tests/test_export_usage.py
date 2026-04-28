@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # Allow tests to import bin/export_usage.py
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "bin"))
@@ -34,3 +36,23 @@ def test_extract_record_full_snapshot():
     assert rec["totalTokens"] == 9086
     assert abs(rec["costUsd"] - 0.046505) < 1e-9
     assert rec["ts"] == "2026-04-23T18:48:23.179Z"
+
+
+@pytest.mark.parametrize("provider,expected", [
+    ("openai-codex", "oauth"),
+    ("claude-cli", "oauth"),
+    ("acpx", "oauth"),
+    ("anthropic", "api"),
+    ("openai", "api"),
+    ("google", "api"),
+    ("kimi", "api"),
+    ("deepseek", "api"),
+    ("minimax", "api"),
+    ("zhipu", "api"),
+    ("totally-unknown-provider", "api"),
+    ("", "api"),
+    (None, "api"),
+])
+def test_classify_billing(provider, expected):
+    import export_usage as eu
+    assert eu.classify_billing(provider) == expected
