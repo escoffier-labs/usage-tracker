@@ -24,3 +24,14 @@ __pycache__/
 
 # OS noise
 .DS_Store
+
+# Claude Code + research surface
+.claude/
+.codex/
+.learnings/
+docs/superpowers/
+**/memory-handoffs/
+
+# OpenClaw files
+.openclaw/
+*.sqlite
