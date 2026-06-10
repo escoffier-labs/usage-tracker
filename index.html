@@ -2036,9 +2036,12 @@ function renderSubscriptionROI(containerId, data, variant) {
 
   const monthlySub = subscriptions.filter(s => s.enabled).reduce((a, s) => a + s.cost, 0);
   const oauthValue = data.oauthCost || 0;
-  const savings = oauthValue - monthlySub;
-  const roi = monthlySub > 0 ? (oauthValue / monthlySub) : 0;
-  const savingsPct = monthlySub > 0 ? ((savings / monthlySub) * 100) : 0;
+  // Prorate the subscription cost to the loaded data span so a 7d or 31d
+  // window compares like with like (30.4375 = average days per month)
+  const periodDays = (data.dailyData || []).length || 30.4375;
+  const periodSub = monthlySub * (periodDays / 30.4375);
+  const savings = oauthValue - periodSub;
+  const roi = periodSub > 0 ? (oauthValue / periodSub) : 0;
 
   const roiLabel = roi >= 1 ? roi.toFixed(1) + 'x' : (roi * 100).toFixed(0) + '%';
   const savingsPositive = savings > 0;
@@ -2099,7 +2102,7 @@ function renderSubscriptionROI(containerId, data, variant) {
         <div>
           <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Monthly Subscription</div>
           <div style="font-size:24px; font-weight:700; color:${s.text};">$${monthlySub.toFixed(0)}</div>
-          <div style="font-size:11px; color:${s.dim}; margin-top:2px;">${subscriptions.filter(x=>x.enabled).length} active plan${subscriptions.filter(x=>x.enabled).length !== 1 ? 's' : ''}</div>
+          <div style="font-size:11px; color:${s.dim}; margin-top:2px;">${subscriptions.filter(x=>x.enabled).length} active plan${subscriptions.filter(x=>x.enabled).length !== 1 ? 's' : ''} · $${periodSub.toFixed(0)} over ${Math.round(periodDays)} days</div>
         </div>
         <div>
           <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">OAuth Value Extracted</div>
@@ -2109,18 +2112,18 @@ function renderSubscriptionROI(containerId, data, variant) {
         <div>
           <div style="font-size:11px; color:${s.dim}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Net Savings</div>
           <div style="font-size:24px; font-weight:700; color:${roiColor};">${savingsPositive ? '+' : ''}${formatCost(Math.abs(savings))}</div>
-          <div style="font-size:11px; color:${roiColor}; margin-top:2px;">${roiLabel} return on subscription</div>
+          <div style="font-size:11px; color:${roiColor}; margin-top:2px;">${roiLabel} return over ${Math.round(periodDays)} days</div>
         </div>
       </div>
 
       <!-- Progress bar: subscription cost vs OAuth value extracted -->
       <div style="margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; font-size:11px; color:${s.dim}; margin-bottom:6px;">
-          <span>Subscription: $${monthlySub.toFixed(0)}</span>
+          <span>Subscription (${Math.round(periodDays)}d): $${periodSub.toFixed(0)}</span>
           <span>OAuth value: ${formatCost(oauthValue)}</span>
         </div>
         <div style="height:8px; background:${s.inputBg}; border-radius:4px; overflow:hidden; position:relative;">
-          <div style="height:100%; width:${Math.min((monthlySub / Math.max(oauthValue, monthlySub, 1)) * 100, 100)}%; background:${s.accent}; border-radius:4px; transition:width 0.6s ease;"></div>
+          <div style="height:100%; width:${Math.min((periodSub / Math.max(oauthValue, periodSub, 1)) * 100, 100)}%; background:${s.accent}; border-radius:4px; transition:width 0.6s ease;"></div>
         </div>
       </div>
 

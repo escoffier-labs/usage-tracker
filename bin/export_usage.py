@@ -8,6 +8,8 @@ Sources:
 - Claude Code project transcripts: ~/.claude/projects/<project>/<uuid>.jsonl
   (token counts per assistant message; cost is estimated from a pricing table
   since Claude Code does not record it)
+- Codex CLI rollouts: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+  (per-call token counts from token_count events; cost estimated the same way)
 """
 
 import argparse
@@ -33,9 +35,12 @@ OAUTH_APIS = {"openai-chatgpt-responses", "cli", "google-gemini-cli"}
 SKIP_PROVIDERS = {"openclaw"}
 
 # USD per MTok: (input, output, cache_read, cache_write_5m, cache_write_1h).
-# Longest-prefix match on model id. Used only for Claude Code records, which
-# carry token counts but no cost.
-ANTHROPIC_PRICING = {
+# Longest-prefix match on model id. Used for Claude Code and Codex CLI
+# records, which carry token counts but no cost. OpenAI cache writes are
+# free, hence the zero write rates on gpt entries.
+MODEL_PRICING = {
+    "gpt-5.5": (5.0, 30.0, 0.50, 0.0, 0.0),
+    "gpt-5.4": (2.5, 15.0, 0.25, 0.0, 0.0),
     "claude-fable-5": (10.0, 50.0, 1.00, 12.50, 20.00),
     "claude-opus-4-8": (5.0, 25.0, 0.50, 6.25, 10.00),
     "claude-opus-4-7": (5.0, 25.0, 0.50, 6.25, 10.00),
@@ -47,6 +52,8 @@ ANTHROPIC_PRICING = {
     "claude-haiku-4-5": (1.0, 5.0, 0.10, 1.25, 2.00),
     "claude-haiku-3": (0.25, 1.25, 0.03, 0.30, 0.50),
 }
+# Backwards-compatible alias
+ANTHROPIC_PRICING = MODEL_PRICING
 
 
 def classify_billing(provider, api=None, oauth_providers=None):
@@ -58,11 +65,11 @@ def classify_billing(provider, api=None, oauth_providers=None):
 
 
 def pricing_for(model):
-    """Longest-prefix match against ANTHROPIC_PRICING. None if unknown."""
+    """Longest-prefix match against MODEL_PRICING. None if unknown."""
     if not model:
         return None
     best = None
-    for prefix, rates in ANTHROPIC_PRICING.items():
+    for prefix, rates in MODEL_PRICING.items():
         if model.startswith(prefix) and (best is None or len(prefix) > len(best[0])):
             best = (prefix, rates)
     return best[1] if best else None
@@ -245,6 +252,88 @@ def walk_claude_projects(projects_dir, mtime_cutoff=None):
     return records
 
 
+def iter_codex_records(path):
+    """Yield flat usage records from one Codex CLI rollout file.
+
+    Rollouts carry a session_meta header, turn_context lines (model, cwd),
+    and event_msg/token_count lines whose info.last_token_usage is the
+    per-call usage. cached_input_tokens is a subset of input_tokens.
+    """
+    session_id = None
+    cwd = None
+    model = None
+    with open(path) as fh:
+        for line in fh:
+            if ('"token_count"' not in line and '"session_meta"' not in line
+                    and '"turn_context"' not in line):
+                continue
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            t = d.get("type")
+            p = d.get("payload") or {}
+            if t == "session_meta":
+                session_id = p.get("id") or session_id
+                cwd = p.get("cwd") or cwd
+            elif t == "turn_context":
+                model = p.get("model") or model
+                cwd = p.get("cwd") or cwd
+            elif t == "event_msg" and p.get("type") == "token_count":
+                info = p.get("info") or {}
+                last = info.get("last_token_usage")
+                if not last:
+                    continue
+                total = last.get("total_tokens") or 0
+                if not total:
+                    continue
+                cached = last.get("cached_input_tokens", 0) or 0
+                uncached_input = max((last.get("input_tokens", 0) or 0) - cached, 0)
+                output_tokens = last.get("output_tokens", 0) or 0
+                rates = pricing_for(model)
+                cost = None
+                if rates is not None:
+                    cost = (
+                        uncached_input * rates[0]
+                        + output_tokens * rates[1]
+                        + cached * rates[2]
+                    ) / 1_000_000
+                sid = session_id or path.name[: -len(".jsonl")]
+                label = f"{Path(cwd).name}:{sid[:8]}" if cwd else None
+                yield {
+                    "ts": d.get("timestamp"),
+                    "agent": "codex-cli",
+                    "sessionId": sid,
+                    "sessionKey": label,
+                    "runId": None,
+                    "provider": "openai",
+                    "modelId": model,
+                    "modelApi": "codex-cli",
+                    "billing": "oauth",
+                    "workspaceDir": cwd,
+                    "input": uncached_input,
+                    "output": output_tokens,
+                    "cacheRead": cached,
+                    "cacheWrite": 0,
+                    "totalTokens": total,
+                    "costUsd": cost,
+                }
+
+
+def walk_codex_sessions(sessions_dir, mtime_cutoff=None):
+    """Walk Codex CLI rollout files (dated subdirectories) and return flat records."""
+    base = Path(sessions_dir)
+    records = []
+    for f in sorted(base.rglob("*.jsonl")):
+        if mtime_cutoff is not None and f.stat().st_mtime < mtime_cutoff:
+            continue
+        try:
+            records.extend(iter_codex_records(f))
+        except OSError:
+            continue
+    return records
+
+
 def parse_since(spec, now=None):
     """Turn '7d' / '24h' / '30m' into an ISO cutoff timestamp.
 
@@ -300,6 +389,19 @@ def main(argv=None):
         help="Skip Claude Code transcripts entirely",
     )
     parser.add_argument(
+        "--codex-sessions",
+        default=str(Path.home() / ".codex" / "sessions"),
+        help=(
+            "Path to Codex CLI sessions directory (default: ~/.codex/sessions; "
+            "skipped silently when absent)"
+        ),
+    )
+    parser.add_argument(
+        "--no-codex",
+        action="store_true",
+        help="Skip Codex CLI rollouts entirely",
+    )
+    parser.add_argument(
         "--out",
         default=str(Path(__file__).resolve().parent.parent / "data" / "usage.json"),
         help="Output path (default: ../data/usage.json)",
@@ -340,6 +442,14 @@ def main(argv=None):
         claude_count = len(claude_records)
         records.extend(claude_records)
 
+    codex_count = 0
+    if not args.no_codex and Path(args.codex_sessions).is_dir():
+        codex_records = walk_codex_sessions(
+            args.codex_sessions, mtime_cutoff=mtime_cutoff
+        )
+        codex_count = len(codex_records)
+        records.extend(codex_records)
+
     if cutoff:
         records = filter_since(records, cutoff)
 
@@ -365,7 +475,7 @@ def main(argv=None):
     cost_missing = len(records) - cost_known
     print(
         f"exported {len(records)} records to {out_path} "
-        f"({openclaw_count} openclaw, {claude_count} claude-code; "
+        f"({openclaw_count} openclaw, {claude_count} claude-code, {codex_count} codex-cli; "
         f"{cost_known} with cost, {cost_missing} missing)",
         file=sys.stderr,
     )

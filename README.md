@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT license">
 </p>
 
-Machine-wide AI session cost analytics. Single static page plus a tiny Python exporter that reads OpenClaw session transcripts and Claude Code project transcripts and writes a flat `data/usage.json` the page renders.
+Machine-wide AI session cost analytics. Single static page plus a tiny Python exporter that reads OpenClaw session transcripts, Claude Code project transcripts, and Codex CLI rollouts, and writes a flat `data/usage.json` the page renders.
 
 Splits real **API spend** from **OAuth subscription burn** (what your Codex Pro / Claude Max calls would have cost at API rates) so you can see what each session actually cost and whether your subscriptions are paying off.
 
@@ -53,7 +53,9 @@ Each call is classified as `oauth` (subscription burn, billed flat) or `api` (re
 - Calls served by a subscription backend are detected from the API id (`openai-chatgpt-responses`, `cli`, `google-gemini-cli`) regardless of provider.
 - Providers in the OAuth set (`openai-codex`, `claude-cli`, `acpx`, `google-gemini-cli` by default) are `oauth`; everything else is `api`.
 - Override per export with `--oauth-providers`. Example: if grok runs on a SuperGrok subscription via device-code OAuth, use `--oauth-providers openai-codex,claude-cli,acpx,google-gemini-cli,xai`.
-- Claude Code records are always `oauth` (Claude Code transcripts carry token counts but no cost; the exporter estimates the API-equivalent cost from a built-in Anthropic pricing table). Disable the source with `--no-claude-code` or point elsewhere with `--claude-projects PATH`.
+- Claude Code records are always `oauth` (Claude Code transcripts carry token counts but no cost; the exporter estimates the API-equivalent cost from a built-in pricing table). Disable the source with `--no-claude-code` or point elsewhere with `--claude-projects PATH`.
+- Codex CLI rollouts (`~/.codex/sessions`) are always `oauth` (ChatGPT subscription); per-call tokens come from `token_count` events and cost is estimated from the same pricing table. Disable with `--no-codex` or point elsewhere with `--codex-sessions PATH`.
+- Models missing from the pricing table export with `costUsd: null`; the page counts them as "calls missing cost data" instead of silently pricing them at zero.
 
 ## Drag-and-drop fallback
 
@@ -62,7 +64,7 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 ## What it shows
 
 - **API spend** versus **OAuth value extracted** for the period
-- Per-agent breakdown (main, coder, codex-builder, claude-code, ...)
+- Per-agent breakdown (main, coder, codex-builder, claude-code, codex-cli, ...)
 - Sessions table grouped by session id, with per-call drill-down
 - Per-model bar chart, stacked by billing type
 - Daily cost time series, stacked by billing type
@@ -71,7 +73,7 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 
 ## Architecture
 
-- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session) plus `~/.claude/projects/*/*.jsonl` (Claude Code), extracts per-call usage from assistant messages, writes a flat array to `data/usage.json`. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
+- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/sessions/**/*.jsonl` (Codex CLI rollouts), extracts per-call usage, writes a flat array to `data/usage.json`. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
 - `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
 - No backend. localStorage caches the last load and your subscription settings.
 

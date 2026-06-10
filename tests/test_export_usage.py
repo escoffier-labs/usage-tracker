@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "bin"))
 
 OPENCLAW_FIXTURE = ROOT / "tests" / "fixtures" / "sample-openclaw-session.jsonl"
 CLAUDE_FIXTURE = ROOT / "tests" / "fixtures" / "sample-claude-project.jsonl"
+CODEX_FIXTURE = ROOT / "tests" / "fixtures" / "sample-codex-rollout.jsonl"
 
 
 def test_module_importable():
@@ -119,7 +120,8 @@ def test_pricing_for_prefix_match():
     assert eu.pricing_for("claude-haiku-4-5-20251001") == eu.ANTHROPIC_PRICING["claude-haiku-4-5"]
     # opus-4-1 must not be swallowed by the shorter claude-opus-4 prefix
     assert eu.pricing_for("claude-opus-4-1-20250805") == eu.ANTHROPIC_PRICING["claude-opus-4-1"]
-    assert eu.pricing_for("gpt-5.5") is None
+    assert eu.pricing_for("gpt-5.5") == eu.MODEL_PRICING["gpt-5.5"]
+    assert eu.pricing_for("totally-unknown-model") is None
     assert eu.pricing_for(None) is None
 
 
@@ -156,39 +158,45 @@ def _make_tree(tmp_path):
     projects = tmp_path / "projects"
     (projects / "-home-user-repos-myproj").mkdir(parents=True)
     (projects / "-home-user-repos-myproj" / "cc1.jsonl").write_text(CLAUDE_FIXTURE.read_text())
-    return agents, projects
+    codex = tmp_path / "codex-sessions"
+    (codex / "2026" / "06" / "03").mkdir(parents=True)
+    (codex / "2026" / "06" / "03" / "rollout-1.jsonl").write_text(CODEX_FIXTURE.read_text())
+    return agents, projects, codex
 
 
 def test_main_combines_sources(tmp_path):
     import export_usage as eu
-    agents, projects = _make_tree(tmp_path)
+    agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
         "--out", str(out),
     ])
     assert rc == 0
     payload = json.loads(out.read_text())
     assert "generatedAt" in payload
     records = payload["records"]
-    assert len(records) == 4  # 2 openclaw + 2 claude-code
+    assert len(records) == 6  # 2 openclaw + 2 claude-code + 2 codex-cli
     agents_seen = {r["agent"] for r in records}
-    assert agents_seen == {"main", "claude-code"}
+    assert agents_seen == {"main", "claude-code", "codex-cli"}
     # newest first
     assert records == sorted(records, key=lambda r: r["ts"], reverse=True)
     # no stale tmp file left behind
     assert not (out.parent / (out.name + ".tmp")).exists()
 
 
-def test_main_no_claude_code(tmp_path):
+def test_main_no_claude_code_no_codex(tmp_path):
     import export_usage as eu
-    agents, projects = _make_tree(tmp_path)
+    agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
         "--no-claude-code",
+        "--no-codex",
         "--out", str(out),
     ])
     assert rc == 0
@@ -196,13 +204,14 @@ def test_main_no_claude_code(tmp_path):
     assert {r["agent"] for r in records} == {"main"}
 
 
-def test_main_missing_claude_projects_is_fine(tmp_path):
+def test_main_missing_source_dirs_is_fine(tmp_path):
     import export_usage as eu
-    agents, _ = _make_tree(tmp_path)
+    agents, _, _ = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(tmp_path / "does-not-exist"),
+        "--codex-sessions", str(tmp_path / "also-missing"),
         "--out", str(out),
     ])
     assert rc == 0
@@ -212,28 +221,30 @@ def test_main_missing_claude_projects_is_fine(tmp_path):
 
 def test_main_since_filters(tmp_path):
     import export_usage as eu
-    agents, projects = _make_tree(tmp_path)
+    agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    # Cutoff between the openclaw records (06-01) and claude-code records (06-02)
+    # Cutoff between openclaw (06-01) and claude-code (06-02) / codex (06-03)
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
         "--since", "2026-06-02T00:00:00.000Z",
         "--out", str(out),
     ])
     assert rc == 0
     records = json.loads(out.read_text())["records"]
-    assert {r["agent"] for r in records} == {"claude-code"}
+    assert {r["agent"] for r in records} == {"claude-code", "codex-cli"}
 
 
 def test_main_oauth_providers_flag(tmp_path):
     import export_usage as eu
-    agents, projects = _make_tree(tmp_path)
+    agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--no-claude-code",
+        "--no-codex",
         "--oauth-providers", "xai",
         "--out", str(out),
     ])
@@ -243,3 +254,39 @@ def test_main_oauth_providers_flag(tmp_path):
     assert by_provider["xai"]["billing"] == "oauth"
     # api-based oauth detection still applies to the codex call
     assert by_provider["openai"]["billing"] == "oauth"
+
+
+def test_iter_codex_records():
+    import export_usage as eu
+    records = list(eu.iter_codex_records(CODEX_FIXTURE))
+    # 2 real calls; the token_count without last_token_usage is skipped
+    assert len(records) == 2
+    first, second = records
+    assert first["agent"] == "codex-cli"
+    assert first["provider"] == "openai"
+    assert first["billing"] == "oauth"
+    assert first["modelId"] == "gpt-5.5"
+    assert first["sessionId"] == "019e1111-2222-7333-8444-555566667777"
+    assert first["sessionKey"] == "widget:019e1111"
+    assert first["workspaceDir"] == "/home/user/repos/widget"
+    # cached_input_tokens is a subset of input_tokens
+    assert first["input"] == 1000
+    assert first["cacheRead"] == 9000
+    assert first["output"] == 500
+    assert first["totalTokens"] == 10500
+    # 1000*5 + 500*30 + 9000*0.5 per MTok
+    expected = (1000 * 5.0 + 500 * 30.0 + 9000 * 0.50) / 1_000_000
+    assert first["costUsd"] == pytest.approx(expected)
+    # model switched mid-session; unknown model has no pricing
+    assert second["modelId"] == "gpt-9.9-experimental"
+    assert second["costUsd"] is None
+    assert second["input"] == 1000  # 2000 input - 1000 cached
+
+
+def test_walk_codex_sessions(tmp_path):
+    import export_usage as eu
+    tree = tmp_path / "2026" / "06" / "03"
+    tree.mkdir(parents=True)
+    (tree / "rollout-a.jsonl").write_text(CODEX_FIXTURE.read_text())
+    records = eu.walk_codex_sessions(tmp_path)
+    assert len(records) == 2
