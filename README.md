@@ -23,7 +23,7 @@ Splits real **API spend** from **OAuth subscription burn** (what your Codex Pro 
 ## Quick start
 
 ```bash
-git clone https://github.com/solomonneas/usage-tracker.git
+git clone https://github.com/escoffier-labs/usage-tracker.git
 cd usage-tracker
 
 # Build data/usage.json from your OpenClaw sessions
