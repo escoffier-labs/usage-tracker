@@ -4,17 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenClaw Usage Tracker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23818cf8' stroke-width='2' stroke-linecap='round'%3E%3Cline x1='18' x2='18' y1='20' y2='10'/%3E%3Cline x1='12' x2='12' y1='20' y2='4'/%3E%3Cline x1='6' x2='6' y1='20' y2='14'/%3E%3C/svg%3E">
 
 <!-- Google Fonts - Different for each variant -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;700&family=JetBrains+Mono:wght@300;400;500;600&family=Space+Mono:wght@400;700&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500;6..72,600;6..72,700&family=Crimson+Pro:wght@300;400;500;600;700&family=Sora:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600;8..60,700&display=swap" rel="stylesheet">
-
-<!-- Tailwind CSS -->
-<script src="https://cdn.tailwindcss.com"></script>
-
-<!-- Lucide Icons -->
-<script src="https://unpkg.com/lucide@latest"></script>
 
 <style>
   /* ============================================ */
@@ -377,10 +372,6 @@
         </div>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="color:#475569; font-family:'Plus Jakarta Sans',sans-serif; font-size:14px;">Toggle Demo / Live mode</span>
-        <span class="shortcut-key">D</span>
-      </div>
-      <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="color:#475569; font-family:'Plus Jakarta Sans',sans-serif; font-size:14px;">Edit subscriptions</span>
         <span class="shortcut-key">S</span>
       </div>
@@ -430,7 +421,7 @@
       <div class="card animate-fade-up stagger-5">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
           <h3 style="font-size:15px; font-weight:600; margin:0; color:var(--v1-text);">Daily Cost Trend</h3>
-          <span style="font-size:12px; color:var(--v1-text-muted);">Last 14 days</span>
+          <span id="v1-daily-range" style="font-size:12px; color:var(--v1-text-muted);"></span>
         </div>
         <div id="v1-daily-chart" style="position:relative; height:240px;"></div>
       </div>
@@ -492,7 +483,7 @@
     <div class="card animate-fade-up stagger-5" style="margin-bottom:36px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
         <h2 style="font-family:'Newsreader',serif; font-size:22px; font-weight:500; margin:0; color:var(--v2-text);">Daily Expenditure</h2>
-        <span style="font-size:13px; color:var(--v2-text-dim); font-style:italic;">14-day overview</span>
+        <span id="v2-daily-range" style="font-size:13px; color:var(--v2-text-dim); font-style:italic;"></span>
       </div>
       <div id="v2-daily-chart" style="position:relative; height:260px;"></div>
     </div>
@@ -552,7 +543,7 @@
       <div class="animate-fade-up stagger-5">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
           <h3 style="font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--v3-text-dim); margin:0;">Daily Cost</h3>
-          <span class="mono" style="font-size:11px; color:var(--v3-text-dim);">14D</span>
+          <span id="v3-daily-range" class="mono" style="font-size:11px; color:var(--v3-text-dim);"></span>
         </div>
         <div style="border:1px solid var(--v3-border); border-radius:4px; padding:24px;">
           <div id="v3-daily-chart" style="position:relative; height:220px;"></div>
@@ -676,7 +667,7 @@
       <div class="card animate-fade-up stagger-5">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
           <h3 style="font-size:15px; font-weight:700; margin:0; color:var(--v5-text);">Daily Cost Trend</h3>
-          <span style="font-size:12px; color:var(--v5-text-dim);">14 days</span>
+          <span id="v5-daily-range" style="font-size:12px; color:var(--v5-text-dim);"></span>
         </div>
         <div id="v5-daily-chart" style="position:relative; height:240px;"></div>
       </div>
@@ -726,7 +717,10 @@ const defaultSubscriptions = [
   { name: 'Anthropic Max', cost: 200, enabled: true },
   { name: 'OpenAI Plus', cost: 20, enabled: true },
 ];
-let subscriptions = JSON.parse(localStorage.getItem('ut-subscriptions') || 'null') || defaultSubscriptions;
+let subscriptions = defaultSubscriptions;
+try {
+  subscriptions = JSON.parse(localStorage.getItem('ut-subscriptions') || 'null') || defaultSubscriptions;
+} catch (e) { /* corrupted localStorage entry; fall back to defaults */ }
 let subEditMode = false;
 
 // ============================================
@@ -767,7 +761,11 @@ function setupDragAndDrop() {
     const records = await parseDroppedFiles(files);
     if (records.length) {
       currentData = normalizeRecords(records);
-      localStorage.setItem('ut-usage-cache', JSON.stringify(records));
+      try {
+        localStorage.setItem('ut-usage-cache', JSON.stringify(records));
+      } catch (err) {
+        console.warn('[usage-tracker] cache write failed (quota?):', err.message);
+      }
       renderAll();
     }
   });
@@ -911,12 +909,14 @@ function normalizeRecords(records) {
   const now = new Date();
   const thisWeekStart = new Date(now); thisWeekStart.setDate(now.getDate() - now.getDay()); thisWeekStart.setHours(0,0,0,0);
   const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-  let thisWeekCost = 0, lastWeekCost = 0, thisWeekTokens = 0, lastWeekTokens = 0, thisWeekSessions = 0, lastWeekSessions = 0;
+  let thisWeekCost = 0, lastWeekCost = 0, thisWeekTokens = 0, lastWeekTokens = 0;
+  const thisWeekIds = new Set(), lastWeekIds = new Set();
   calls.forEach(c => {
     const t = new Date(c.timestamp);
-    if (t >= thisWeekStart) { thisWeekCost += c.usage.cost.total; thisWeekTokens += c.usage.totalTokens; thisWeekSessions++; }
-    else if (t >= lastWeekStart && t < thisWeekStart) { lastWeekCost += c.usage.cost.total; lastWeekTokens += c.usage.totalTokens; lastWeekSessions++; }
+    if (t >= thisWeekStart) { thisWeekCost += c.usage.cost.total; thisWeekTokens += c.usage.totalTokens; thisWeekIds.add(c.sessionId); }
+    else if (t >= lastWeekStart && t < thisWeekStart) { lastWeekCost += c.usage.cost.total; lastWeekTokens += c.usage.totalTokens; lastWeekIds.add(c.sessionId); }
   });
+  const thisWeekSessions = thisWeekIds.size, lastWeekSessions = lastWeekIds.size;
   const pct = (a, b) => b > 0 ? ((a - b) / b * 100) : 0;
   const costChange = pct(thisWeekCost, lastWeekCost);
   const tokenChange = pct(thisWeekTokens, lastWeekTokens);
@@ -994,9 +994,12 @@ function normalizeRecords(records) {
       .map(s => ({ ...s, models: s.models ? [...s.models] : [] }))
       .sort((a, b) => b.cost - a.cost);
 
+  const missingCost = records.filter(r => r.costUsd == null).length;
+
   return {
     sessions: calls,
     sessionGroups: arrify(sessionGroups),
+    missingCost,
     totalCost, apiCost, oauthCost,
     totalTokens, totalCacheRead, totalCacheWrite, cacheHitRate, activeModels,
     thisWeekCost, lastWeekCost, thisWeekTokens, lastWeekTokens, thisWeekSessions, lastWeekSessions,
@@ -1010,22 +1013,58 @@ function normalizeRecords(records) {
   };
 }
 
-// Provider colors
+// Provider colors (known providers get fixed colors/labels; anything else
+// gets a stable palette color via providerInfo/colorForKey)
 const providerColors = {
   anthropic: { primary: '#818cf8', secondary: '#6366f1', bg: 'rgba(129,140,248,0.12)', label: 'Anthropic' },
   openai: { primary: '#34d399', secondary: '#10b981', bg: 'rgba(52,211,153,0.12)', label: 'OpenAI' },
+  'openai-codex': { primary: '#2dd4bf', secondary: '#14b8a6', bg: 'rgba(45,212,191,0.12)', label: 'OpenAI Codex' },
+  'claude-cli': { primary: '#c4b5fd', secondary: '#a78bfa', bg: 'rgba(196,181,253,0.12)', label: 'Claude CLI' },
+  acpx: { primary: '#f472b6', secondary: '#ec4899', bg: 'rgba(244,114,182,0.12)', label: 'ACPX' },
+  google: { primary: '#60a5fa', secondary: '#3b82f6', bg: 'rgba(96,165,250,0.12)', label: 'Google' },
+  kimi: { primary: '#fbbf24', secondary: '#f59e0b', bg: 'rgba(251,191,36,0.12)', label: 'Kimi' },
   moonshot: { primary: '#fbbf24', secondary: '#f59e0b', bg: 'rgba(251,191,36,0.12)', label: 'Moonshot' },
   ollama: { primary: '#f87171', secondary: '#ef4444', bg: 'rgba(248,113,113,0.12)', label: 'Ollama' },
-  openclaw: { primary: '#a78bfa', secondary: '#8b5cf6', bg: 'rgba(167,139,250,0.12)', label: 'OpenClaw' },
 };
 
-const modelColors = {
-  'claude-opus-4-6': '#818cf8',
-  'claude-haiku-4-5': '#a78bfa',
-  'gpt-5.2': '#34d399',
-  'kimi-k2.5': '#fbbf24',
-  'qwen2.5-coder': '#f87171',
+const fallbackPalette = ['#818cf8', '#34d399', '#fbbf24', '#f87171', '#67e8f9', '#f472b6', '#a3e635', '#fb923c', '#a78bfa', '#2dd4bf'];
+
+function colorForKey(key) {
+  let h = 0;
+  const s = String(key || 'unknown');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return fallbackPalette[h % fallbackPalette.length];
+}
+
+function providerInfo(provider) {
+  const known = providerColors[provider];
+  if (known) return known;
+  const c = colorForKey(provider);
+  return { primary: c, secondary: c, bg: 'rgba(148,163,184,0.12)', label: provider || 'unknown' };
+}
+
+function modelColor(model) {
+  return colorForKey(model);
+}
+
+// Inline icon set (Lucide outlines, vendored so the page works offline)
+const ICONS = {
+  'credit-card': '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
+  'zap': '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  'dollar-sign': '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  'bar-chart-2': '<line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/>',
+  'layers': '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  'database': '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
 };
+
+function iconSvg(name, style) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="${style}">${ICONS[name] || ''}</svg>`;
+}
+
+// Escape record-derived strings before HTML interpolation
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
 
 // ============================================
 // FORMATTING HELPERS
@@ -1053,11 +1092,6 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function formatDateShort(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
 function formatTimestamp(ts) {
   const d = new Date(ts);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + 
@@ -1080,6 +1114,15 @@ function renderDailyChart(containerId, data, variant) {
 
   const daily = data.dailyData;
   if (!daily || daily.length === 0) return;
+
+  // Reflect the actual loaded range, not a hardcoded "14 days"
+  const rangeEl = document.getElementById(`v${variant}-daily-range`);
+  if (rangeEl) {
+    const nDays = daily.length;
+    rangeEl.textContent = variant === 3 ? `${nDays}D`
+      : variant === 2 ? `${nDays}-day overview`
+      : `Last ${nDays} day${nDays !== 1 ? 's' : ''}`;
+  }
 
   const maxCost = Math.max(...daily.map(d => d.cost), 0.01);
   const baseline = padding.top + chartH;
@@ -1184,7 +1227,7 @@ function renderDailyChart(containerId, data, variant) {
   const labelEvery = n > 10 ? 2 : 1;
   daily.forEach((d, i) => {
     if (i % labelEvery === 0) {
-      xLabels += `<text x="${xOf(i)}" y="${height - 8}" text-anchor="middle" fill="${s.text}" font-size="10" font-family="${fontFamily}">${formatDateShort(d.date)}</text>`;
+      xLabels += `<text x="${xOf(i)}" y="${height - 8}" text-anchor="middle" fill="${s.text}" font-size="10" font-family="${fontFamily}">${formatDate(d.date)}</text>`;
     }
   });
 
@@ -1309,14 +1352,14 @@ function renderModelChart(containerId, data, variant) {
       const apiPct    = maxCost > 0 ? ((m.apiCost   || 0) / maxCost * 100) : 0;
       const oauthPct  = maxCost > 0 ? ((m.oauthCost || 0) / maxCost * 100) : 0;
       const costPct   = totalCost > 0 ? (m.cost / totalCost * 100).toFixed(1) : '0.0';
-      const color     = modelColors[m.model] || '#94a3b8';
+      const color     = modelColor(m.model);
 
       html += `
         <div style="margin-bottom:16px;" class="animate-slide-right stagger-${i+1}">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <div style="display:flex; align-items:center; gap:8px;">
               <div style="width:10px; height:10px; border-radius:3px; background:${color};"></div>
-              <span style="font-size:13px; font-weight:500; color:${cfg.textColor};">${m.model}</span>
+              <span style="font-size:13px; font-weight:500; color:${cfg.textColor};">${esc(m.model)}</span>
             </div>
             <span style="font-size:12px; color:${cfg.dimColor};" title="Total: ${formatCost(m.cost)} | API: ${formatCost(m.apiCost||0)} | OAuth: ${formatCost(m.oauthCost||0)} | Tokens: ${formatTokens(m.tokens)} | Sessions: ${m.sessions}">${formatCost(m.cost)} (${costPct}%)</span>
           </div>
@@ -1342,7 +1385,7 @@ function renderModelChart(containerId, data, variant) {
     const totalTokensAll = models.reduce((a, m) => a + m.tokens, 0);
 
     models.forEach((m, i) => {
-      const fraction = m.tokens / totalTokensAll;
+      const fraction = totalTokensAll > 0 ? m.tokens / totalTokensAll : 0;
       const angle = fraction * Math.PI * 2;
       const endAngle = startAngle + angle;
 
@@ -1356,7 +1399,7 @@ function renderModelChart(containerId, data, variant) {
       const y4 = cy + innerR * Math.sin(startAngle);
 
       const largeArc = angle > Math.PI ? 1 : 0;
-      const color = modelColors[m.model] || '#94a3b8';
+      const color = modelColor(m.model);
       const tooltipTitle = `Total: ${formatCost(m.cost)} | API: ${formatCost(m.apiCost||0)} | OAuth: ${formatCost(m.oauthCost||0)} | Tokens: ${formatTokens(m.tokens)} | Sessions: ${m.sessions}`;
 
       paths += `<path d="M ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${largeArc} 0 ${x4} ${y4} Z" fill="${color}" opacity="0.85" style="transition:opacity 0.2s; cursor:default;" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.85'"><title>${tooltipTitle}</title></path>`;
@@ -1379,12 +1422,12 @@ function renderModelChart(containerId, data, variant) {
 
     let legend = legendHeaderHtml;
     models.forEach(m => {
-      const color = modelColors[m.model] || '#94a3b8';
+      const color = modelColor(m.model);
       const pct = totalTokensAll > 0 ? (m.tokens / totalTokensAll * 100).toFixed(1) : '0.0';
       legend += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <div style="width:10px; height:10px; border-radius:${variant === 4 ? '1px' : '3px'}; background:${color}; flex-shrink:0;"></div>
         <div style="flex:1;">
-          <div style="font-size:13px; color:${cfg.textColor};">${m.model}</div>
+          <div style="font-size:13px; color:${cfg.textColor};">${esc(m.model)}</div>
           <div style="font-size:11px; color:${cfg.dimColor};">${formatTokens(m.tokens)} · ${formatCost(m.cost)} · ${pct}%</div>
           <div style="font-size:10px; color:${cfg.dimColor}; margin-top:1px;">
             <span style="color:${cfg.apiColor};">API ${formatCost(m.apiCost||0)}</span>
@@ -1426,13 +1469,13 @@ function renderModelChart(containerId, data, variant) {
       const tokenPct = totalTokensAll > 0 ? (m.tokens / totalTokensAll * 100).toFixed(1) : '0.0';
       const apiBarPct   = maxCost > 0 ? ((m.apiCost   || 0) / maxCost * 100) : 0;
       const oauthBarPct = maxCost > 0 ? ((m.oauthCost || 0) / maxCost * 100) : 0;
-      const color = modelColors[m.model] || '#94a3b8';
+      const color = modelColor(m.model);
 
       html += `<div style="padding:8px 0; border-bottom:1px solid var(--v3-border);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
           <div style="display:flex; align-items:center; gap:8px;">
             <div style="width:8px; height:8px; border-radius:1px; background:${color};"></div>
-            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--v3-text);">${m.model}</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--v3-text);">${esc(m.model)}</span>
           </div>
           <div style="display:flex; gap:12px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--v3-text-dim);">
             <span>${formatTokens(m.tokens)}</span>
@@ -1468,7 +1511,7 @@ function renderSummaryCards(containerId, data, variant) {
   const cards = [
     { label: 'API Spend', value: formatCost(data.apiCost || 0), change: null, icon: 'credit-card', billingPill: 'API', subtitle: 'real $' },
     { label: 'OAuth Value', value: formatCost(data.oauthCost || 0), change: null, icon: 'zap', billingPill: 'OAUTH', subtitle: 'equivalent API spend' },
-    { label: 'Total', value: formatCost(data.totalCost || 0), change: data.costChange, icon: 'dollar-sign' },
+    { label: 'Total', value: formatCost(data.totalCost || 0), change: data.costChange, icon: 'dollar-sign', subtitle: data.missingCost ? `${data.missingCost} call${data.missingCost !== 1 ? 's' : ''} missing cost data` : undefined },
     { label: 'Total Tokens', value: formatTokens(data.totalTokens || 0), change: data.tokenChange, icon: 'bar-chart-2' },
     { label: 'Sessions', value: totalSessions.toString(), change: data.sessionChange, icon: 'layers' },
     { label: 'Cache Hit Rate', value: (data.cacheHitRate || 0).toFixed(1) + '%', change: null, icon: 'database', subtitle: `${formatTokens(data.totalCacheRead || 0)} read · ${formatTokens(data.totalCacheWrite || 0)} write` },
@@ -1486,7 +1529,7 @@ function renderSummaryCards(containerId, data, variant) {
       return `<div class="card animate-fade-up stagger-${i+1}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
           <span style="font-size:12px; font-weight:500; color:var(--v1-text-muted); text-transform:uppercase; letter-spacing:0.5px;">${c.label}</span>
-          <i data-lucide="${c.icon}" style="width:16px; height:16px; color:var(--v1-accent); opacity:0.7;"></i>
+          ${iconSvg(c.icon, 'width:16px; height:16px; color:var(--v1-accent); opacity:0.7;')}
         </div>
         ${pillHtml}
         <div style="font-size:28px; font-weight:700; color:var(--v1-text); letter-spacing:-0.5px;">${c.value}</div>
@@ -1554,7 +1597,7 @@ function renderSummaryCards(containerId, data, variant) {
       return `<div class="card animate-fade-up stagger-${i+1}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
           <span style="font-size:12px; font-weight:500; color:var(--v5-text-dim); text-transform:uppercase; letter-spacing:0.5px;">${c.label}</span>
-          <i data-lucide="${c.icon}" style="width:16px; height:16px; color:var(--v5-accent); opacity:0.6;"></i>
+          ${iconSvg(c.icon, 'width:16px; height:16px; color:var(--v5-accent); opacity:0.6;')}
         </div>
         ${pillHtml}
         <div style="font-size:28px; font-weight:800; background:linear-gradient(135deg, var(--v5-text), var(--v5-accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">${c.value}</div>
@@ -1563,16 +1606,7 @@ function renderSummaryCards(containerId, data, variant) {
       </div>`;
     }).join('');
   }
-  
-  // Refresh lucide icons
-  if (typeof lucide !== 'undefined') {
-    lucide.createIcons();
-  }
 }
-
-// ============================================
-// RENDER PROVIDERS
-// ============================================
 
 // ============================================
 // RENDER AGENTS
@@ -1594,7 +1628,7 @@ function renderAgents(containerId, data, variant) {
       return `<div style="background:${bgColor}; border:1px solid ${borderColor}; border-radius:${radius}; padding:16px;">
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${dimColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          <span style="font-size:14px; font-weight:600; color:${textColor};">${a.agent}</span>
+          <span style="font-size:14px; font-weight:600; color:${textColor};">${esc(a.agent)}</span>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           <div>
@@ -1628,7 +1662,7 @@ function renderAgents(containerId, data, variant) {
     container.innerHTML = agents.map(a => {
       return `<div style="padding:20px 0; border-bottom:1px solid var(--v2-border);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <span style="font-family:'Newsreader',serif; font-size:18px; color:var(--v2-text);">Agent: ${a.agent}</span>
+          <span style="font-family:'Newsreader',serif; font-size:18px; color:var(--v2-text);">Agent: ${esc(a.agent)}</span>
           <span style="font-family:'Newsreader',serif; font-size:20px; color:var(--v2-text);">${formatCost(a.cost)}</span>
         </div>
         <div style="font-size:13px; color:var(--v2-text-dim);">${formatTokens(a.tokens)} tokens · ${a.sessions} sessions · ${a.models.length} model${a.models.length !== 1 ? 's' : ''} · API: <span style="color:#6366f1;">${formatCost(a.apiCost)}</span> · OAuth: <span style="color:#d97706;">${formatCost(a.oauthCost)}</span></div>
@@ -1638,7 +1672,7 @@ function renderAgents(containerId, data, variant) {
     container.innerHTML = agents.map(a => {
       return `<div style="background:var(--v3-bg); padding:16px 20px;">
         <div style="margin-bottom:8px;">
-          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; letter-spacing:1px; color:var(--v3-text-dim);">[${a.agent}]</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; letter-spacing:1px; color:var(--v3-text-dim);">[${esc(a.agent)}]</span>
         </div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--v3-text); margin-bottom:4px;">${formatCost(a.cost)}</div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--v3-text-dim);">${formatTokens(a.tokens)} · ${a.sessions}s · ${a.models.length}m</div>
@@ -1649,7 +1683,7 @@ function renderAgents(containerId, data, variant) {
     container.innerHTML = agents.map(a => {
       return `<div style="padding:16px 0; border-bottom:1px dashed var(--v4-border);">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <span style="font-family:'Playfair Display',serif; font-size:17px; color:var(--v4-text); font-style:italic;">${a.agent}</span>
+          <span style="font-family:'Playfair Display',serif; font-size:17px; color:var(--v4-text); font-style:italic;">${esc(a.agent)}</span>
           <span style="font-size:18px; color:var(--v4-text);">${formatCost(a.cost)}</span>
         </div>
         <div style="font-size:13px; color:var(--v4-text-dim); margin-top:4px;">${formatTokens(a.tokens)} tokens · ${a.sessions} sessions · ${a.models.length} model${a.models.length !== 1 ? 's' : ''}</div>
@@ -1676,11 +1710,11 @@ function renderProviders(containerId, data, variant) {
     const radius = variant === 1 ? '12px' : '16px';
     
     container.innerHTML = providers.map(p => {
-      const pc = providerColors[p.provider] || providerColors.openclaw;
+      const pc = providerInfo(p.provider);
       return `<div style="background:${bgColor}; border:1px solid ${borderColor}; border-radius:${radius}; padding:16px;">
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
           <div style="width:8px; height:8px; border-radius:4px; background:${pc.primary};"></div>
-          <span style="font-size:14px; font-weight:600; color:${textColor}; text-transform:capitalize;">${pc.label}</span>
+          <span style="font-size:14px; font-weight:600; color:${textColor}; text-transform:capitalize;">${esc(pc.label)}</span>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           <div>
@@ -1712,12 +1746,12 @@ function renderProviders(containerId, data, variant) {
     }).join('');
   } else if (variant === 2) {
     container.innerHTML = providers.map(p => {
-      const pc = providerColors[p.provider] || providerColors.openclaw;
+      const pc = providerInfo(p.provider);
       return `<div style="padding:20px 0; border-bottom:1px solid var(--v2-border);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:10px;">
             <div style="width:12px; height:12px; border-radius:3px; background:${pc.primary};"></div>
-            <span style="font-family:'Newsreader',serif; font-size:18px; color:var(--v2-text); text-transform:capitalize;">${pc.label}</span>
+            <span style="font-family:'Newsreader',serif; font-size:18px; color:var(--v2-text); text-transform:capitalize;">${esc(pc.label)}</span>
           </div>
           <span style="font-family:'Newsreader',serif; font-size:20px; color:var(--v2-text);">${formatCost(p.cost)}</span>
         </div>
@@ -1726,11 +1760,11 @@ function renderProviders(containerId, data, variant) {
     }).join('');
   } else if (variant === 3) {
     container.innerHTML = providers.map(p => {
-      const pc = providerColors[p.provider] || providerColors.openclaw;
+      const pc = providerInfo(p.provider);
       return `<div style="background:var(--v3-bg); padding:16px 20px;">
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
           <div style="width:6px; height:6px; border-radius:1px; background:${pc.primary};"></div>
-          <span style="font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--v3-text-dim);">${pc.label}</span>
+          <span style="font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--v3-text-dim);">${esc(pc.label)}</span>
         </div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--v3-text); margin-bottom:4px;">${formatCost(p.cost)}</div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--v3-text-dim);">${formatTokens(p.tokens)} · ${p.sessions}s · ${p.models.length}m</div>
@@ -1739,12 +1773,12 @@ function renderProviders(containerId, data, variant) {
     }).join('');
   } else if (variant === 4) {
     container.innerHTML = providers.map(p => {
-      const pc = providerColors[p.provider] || providerColors.openclaw;
+      const pc = providerInfo(p.provider);
       return `<div style="padding:16px 0; border-bottom:1px dashed var(--v4-border);">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="color:${pc.primary}; font-size:16px;">●</span>
-            <span style="font-family:'Playfair Display',serif; font-size:17px; color:var(--v4-text); text-transform:capitalize;">${pc.label}</span>
+            <span style="font-family:'Playfair Display',serif; font-size:17px; color:var(--v4-text); text-transform:capitalize;">${esc(pc.label)}</span>
           </div>
           <span style="font-size:18px; color:var(--v4-text);">${formatCost(p.cost)}</span>
         </div>
@@ -1777,14 +1811,14 @@ function renderSessions(containerId, data, variant) {
   if (variant === 1) {
     container.innerHTML = sessions.map((s, i) => {
       const firstProvider = (s.calls && s.calls[0]) ? s.calls[0].provider : 'openclaw';
-      const pc = providerColors[firstProvider] || providerColors.openclaw;
+      const pc = providerInfo(firstProvider);
       const displayName = s.sessionKey || (s.sessionId || '').slice(0, 8);
       const modelLabel = s.models && s.models.length > 1 ? `${s.models[0]} +${s.models.length - 1}` : (s.models && s.models[0]) || '';
       const callsArr = s.calls || [];
       const callRows = callsArr.map(c => `<div style="padding:3px 0; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:12px; flex-wrap:wrap; font-size:11px; color:var(--v1-text-muted);">
         <span>${formatTimestamp(c.timestamp)}</span>
-        <span style="color:var(--v1-text);">${c.model || ''}</span>
-        <span>${c.billing || c.provider || ''}</span>
+        <span style="color:var(--v1-text);">${esc(c.model || '')}</span>
+        <span>${esc(c.billing || c.provider || '')}</span>
         <span>${formatTokens((c.usage && c.usage.totalTokens) || 0)}</span>
         <span style="color:var(--v1-accent);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span>
       </div>`).join('');
@@ -1792,8 +1826,8 @@ function renderSessions(containerId, data, variant) {
         <div style="display:flex; align-items:center; gap:12px; min-width:0;">
           <div style="width:8px; height:8px; border-radius:4px; background:${pc.primary}; flex-shrink:0;"></div>
           <div style="min-width:0;">
-            <div style="font-size:13px; font-weight:500; color:var(--v1-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${displayName}</div>
-            <div style="font-size:11px; color:var(--v1-text-muted);">${formatTimestamp(s.firstTs)} · <strong>${s.agent || ''}</strong> · ${modelLabel}</div>
+            <div style="font-size:13px; font-weight:500; color:var(--v1-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(displayName)}</div>
+            <div style="font-size:11px; color:var(--v1-text-muted);">${formatTimestamp(s.firstTs)} · <strong>${esc(s.agent || '')}</strong> · ${esc(modelLabel)}</div>
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:16px; flex-shrink:0;">
@@ -1817,17 +1851,17 @@ function renderSessions(containerId, data, variant) {
       const callsArr = s.calls || [];
       const callRows = callsArr.map(c => `<div style="padding:3px 0; border-bottom:1px solid rgba(0,0,0,0.06); font-size:11px; color:var(--v2-text-dim);">
         <span style="font-style:italic;">${formatTimestamp(c.timestamp)}</span> &middot;
-        <span style="color:var(--v2-text);">${c.model || ''}</span> &middot;
-        <span>${c.billing || c.provider || ''}</span> &middot;
+        <span style="color:var(--v2-text);">${esc(c.model || '')}</span> &middot;
+        <span>${esc(c.billing || c.provider || '')}</span> &middot;
         <span>${formatTokens((c.usage && c.usage.totalTokens) || 0)}</span> &middot;
         <span style="color:var(--v2-accent);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span>
       </div>`).join('');
       return `<div class="session-row" style="padding:16px 0; border-bottom:1px solid var(--v2-border); cursor:pointer; transition:background 0.15s;" onclick="toggleSessionDetail(this)">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
           <div>
-            <span style="font-family:'Newsreader',serif; font-size:16px; color:var(--v2-text);">${displayName}</span>
-            <span style="font-size:12px; color:var(--v2-text-dim); margin-left:12px;">${s.agent || ''}</span>
-            <span style="font-size:12px; color:var(--v2-text-dim); margin-left:8px;">${modelLabel}</span>
+            <span style="font-family:'Newsreader',serif; font-size:16px; color:var(--v2-text);">${esc(displayName)}</span>
+            <span style="font-size:12px; color:var(--v2-text-dim); margin-left:12px;">${esc(s.agent || '')}</span>
+            <span style="font-size:12px; color:var(--v2-text-dim); margin-left:8px;">${esc(modelLabel)}</span>
           </div>
           <div style="text-align:right;">
             <span style="font-family:'Newsreader',serif; font-size:18px; color:var(--v2-accent);">${formatCost(s.cost)}</span>
@@ -1845,17 +1879,17 @@ function renderSessions(containerId, data, variant) {
   } else if (variant === 3) {
     container.innerHTML = sessions.map((s, i) => {
       const firstProvider = (s.calls && s.calls[0]) ? s.calls[0].provider : 'openclaw';
-      const pc = providerColors[firstProvider] || providerColors.openclaw;
+      const pc = providerInfo(firstProvider);
       const displayName = s.sessionKey || (s.sessionId || '').slice(0, 8);
       const modelLabel = s.models && s.models.length > 1 ? `${s.models[0]} +${s.models.length - 1}` : (s.models && s.models[0]) || '';
       const callsArr = s.calls || [];
-      const callRows = callsArr.map(c => `<div style="padding:2px 0; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--v3-text-dim);">${formatTimestamp(c.timestamp)} · ${c.model || ''} · ${c.billing || c.provider || ''} · ${formatTokens((c.usage && c.usage.totalTokens) || 0)} · <span style="color:var(--v3-accent);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span></div>`).join('');
+      const callRows = callsArr.map(c => `<div style="padding:2px 0; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--v3-text-dim);">${formatTimestamp(c.timestamp)} · ${esc(c.model || '')} · ${esc(c.billing || c.provider || '')} · ${formatTokens((c.usage && c.usage.totalTokens) || 0)} · <span style="color:var(--v3-accent);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span></div>`).join('');
       return `<div class="session-row" style="display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid var(--v3-border); cursor:pointer; transition:background 0.1s;" onmouseenter="this.style.background='var(--v3-surface)'" onmouseleave="this.style.background='transparent'" onclick="toggleSessionDetail(this)">
         <div style="display:flex; align-items:center; gap:12px; min-width:0; overflow:hidden;">
           <div style="width:6px; height:6px; border-radius:1px; background:${pc.primary}; flex-shrink:0;"></div>
-          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--v3-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${displayName}</span>
-          <span style="font-size:10px; color:var(--v3-text-dim); flex-shrink:0;">${s.agent || ''}</span>
-          <span style="font-size:10px; color:var(--v3-text-dim); flex-shrink:0;">${modelLabel}</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--v3-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(displayName)}</span>
+          <span style="font-size:10px; color:var(--v3-text-dim); flex-shrink:0;">${esc(s.agent || '')}</span>
+          <span style="font-size:10px; color:var(--v3-text-dim); flex-shrink:0;">${esc(modelLabel)}</span>
         </div>
         <div style="display:flex; gap:16px; font-family:'JetBrains Mono',monospace; font-size:11px; flex-shrink:0;">
           <span style="color:var(--v3-text-dim);">${formatTimestamp(s.firstTs)}</span>
@@ -1878,13 +1912,13 @@ function renderSessions(containerId, data, variant) {
       const displayName = s.sessionKey || (s.sessionId || '').slice(0, 8);
       const modelLabel = s.models && s.models.length > 1 ? `${s.models[0]} +${s.models.length - 1}` : (s.models && s.models[0]) || '';
       const callsArr = s.calls || [];
-      const callRows = callsArr.map(c => `<div style="padding:3px 0; border-bottom:1px dashed rgba(0,0,0,0.08); font-size:11px; color:var(--v4-text-dim);">${formatTimestamp(c.timestamp)} &mdash; ${c.model || ''} &mdash; ${c.billing || c.provider || ''} &mdash; ${formatTokens((c.usage && c.usage.totalTokens) || 0)} &mdash; <span style="color:var(--v4-text);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span></div>`).join('');
+      const callRows = callsArr.map(c => `<div style="padding:3px 0; border-bottom:1px dashed rgba(0,0,0,0.08); font-size:11px; color:var(--v4-text-dim);">${formatTimestamp(c.timestamp)} &mdash; ${esc(c.model || '')} &mdash; ${esc(c.billing || c.provider || '')} &mdash; ${formatTokens((c.usage && c.usage.totalTokens) || 0)} &mdash; <span style="color:var(--v4-text);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span></div>`).join('');
       return `<div class="session-row" style="padding:14px 0; border-bottom:1px dashed var(--v4-border); cursor:pointer;" onclick="toggleSessionDetail(this)">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
           <div>
-            <span style="font-size:15px; color:var(--v4-text);">${displayName}</span>
-            <span style="font-size:12px; color:var(--v4-text-dim); margin-left:8px; font-style:italic;">${s.agent || ''}</span>
-            <span style="font-size:12px; color:var(--v4-text-dim); margin-left:4px;">${modelLabel}</span>
+            <span style="font-size:15px; color:var(--v4-text);">${esc(displayName)}</span>
+            <span style="font-size:12px; color:var(--v4-text-dim); margin-left:8px; font-style:italic;">${esc(s.agent || '')}</span>
+            <span style="font-size:12px; color:var(--v4-text-dim); margin-left:4px;">${esc(modelLabel)}</span>
           </div>
           <span style="font-size:16px; color:var(--v4-text);">${formatCost(s.cost)}</span>
         </div>
@@ -1900,17 +1934,17 @@ function renderSessions(containerId, data, variant) {
   } else if (variant === 5) {
     container.innerHTML = sessions.map((s, i) => {
       const firstProvider = (s.calls && s.calls[0]) ? s.calls[0].provider : 'openclaw';
-      const pc = providerColors[firstProvider] || providerColors.openclaw;
+      const pc = providerInfo(firstProvider);
       const displayName = s.sessionKey || (s.sessionId || '').slice(0, 8);
       const modelLabel = s.models && s.models.length > 1 ? `${s.models[0]} +${s.models.length - 1}` : (s.models && s.models[0]) || '';
       const callsArr = s.calls || [];
-      const callRows = callsArr.map(c => `<div style="padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:11px; color:var(--v5-text-dim);">${formatTimestamp(c.timestamp)} · <span style="color:var(--v5-text);">${c.model || ''}</span> · ${c.billing || c.provider || ''} · ${formatTokens((c.usage && c.usage.totalTokens) || 0)} · <span style="color:var(--v5-accent);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span></div>`).join('');
+      const callRows = callsArr.map(c => `<div style="padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:11px; color:var(--v5-text-dim);">${formatTimestamp(c.timestamp)} · <span style="color:var(--v5-text);">${esc(c.model || '')}</span> · ${esc(c.billing || c.provider || '')} · ${formatTokens((c.usage && c.usage.totalTokens) || 0)} · <span style="color:var(--v5-accent);">${formatCost((c.usage && c.usage.cost && c.usage.cost.total) || 0)}</span></div>`).join('');
       return `<div class="session-row" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--v5-border); cursor:pointer; transition:background 0.15s;" onmouseenter="this.style.background='rgba(255,255,255,0.04)'" onmouseleave="this.style.background='transparent'" onclick="toggleSessionDetail(this)">
         <div style="display:flex; align-items:center; gap:12px; min-width:0;">
           <div style="width:8px; height:8px; border-radius:4px; background:${pc.primary}; box-shadow:0 0 8px ${pc.primary}40; flex-shrink:0;"></div>
           <div style="min-width:0;">
-            <div style="font-size:13px; font-weight:600; color:var(--v5-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${displayName}</div>
-            <div style="font-size:11px; color:var(--v5-text-dim);">${formatTimestamp(s.firstTs)} · <strong>${s.agent || ''}</strong> · ${modelLabel}</div>
+            <div style="font-size:13px; font-weight:600; color:var(--v5-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(displayName)}</div>
+            <div style="font-size:11px; color:var(--v5-text-dim);">${formatTimestamp(s.firstTs)} · <strong>${esc(s.agent || '')}</strong> · ${esc(modelLabel)}</div>
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:16px; flex-shrink:0;">
@@ -2031,14 +2065,14 @@ function renderSubscriptionROI(containerId, data, variant) {
     if (subEditMode) {
       subItemsHtml += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <input type="checkbox" ${sub.enabled ? 'checked' : ''} onchange="toggleSubEnabled(${sub.index})" style="cursor:pointer;">
-        <input type="text" value="${sub.name}" onchange="updateSubName(${sub.index}, this.value)" style="background:${s.inputBg}; border:1px solid ${s.inputBorder}; border-radius:4px; padding:4px 8px; font-size:12px; color:${s.text}; width:140px; outline:none;">
+        <input type="text" value="${esc(sub.name)}" onchange="updateSubName(${sub.index}, this.value)" style="background:${s.inputBg}; border:1px solid ${s.inputBorder}; border-radius:4px; padding:4px 8px; font-size:12px; color:${s.text}; width:140px; outline:none;">
         <span style="font-size:12px; color:${s.dim};">$</span>
         <input type="number" value="${sub.cost}" onchange="updateSubCost(${sub.index}, this.value)" style="background:${s.inputBg}; border:1px solid ${s.inputBorder}; border-radius:4px; padding:4px 8px; font-size:12px; color:${s.text}; width:80px; outline:none;">
         <button onclick="removeSubscription(${sub.index})" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:14px; padding:2px 6px;">×</button>
       </div>`;
     } else {
       subItemsHtml += `<div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; opacity:${sub.enabled ? '1' : '0.4'};">
-        <span style="font-size:13px; color:${s.text};">${sub.name}</span>
+        <span style="font-size:13px; color:${s.text};">${esc(sub.name)}</span>
         <span style="font-size:13px; font-weight:600; color:${s.text};">$${sub.cost.toFixed(0)}/mo</span>
       </div>`;
     }
@@ -2102,8 +2136,18 @@ function renderSubscriptionROI(containerId, data, variant) {
 // ============================================
 // RENDER ALL FOR CURRENT VARIANT
 // ============================================
+function renderEmptyState() {
+  const el = document.getElementById(`v${currentVariant}-summary`);
+  if (!el) return;
+  el.innerHTML = `<div style="grid-column:1/-1; padding:40px 24px; text-align:center; opacity:0.65; font-size:14px; line-height:1.7;">
+    No usage data loaded.<br>
+    Run <code>python3 bin/export_usage.py --since 30d</code> and reload,
+    or drop trajectory <code>.jsonl</code> / <code>usage.json</code> files anywhere on this page.
+  </div>`;
+}
+
 function renderAll() {
-  if (!currentData) return;
+  if (!currentData) { renderEmptyState(); return; }
   const v = currentVariant;
   const prefix = `v${v}`;
   const safe = (label, fn) => { try { fn(); } catch (e) { console.warn('[usage-tracker]', label, 'failed:', e.message); } };
@@ -2125,8 +2169,8 @@ function switchVariant(num) {
   currentVariant = num;
   localStorage.setItem('ut-variant', num);
   
-  // Update hash
-  window.location.hash = `/${num}`;
+  // Update hash without firing hashchange (avoids a double render)
+  history.replaceState(null, '', `#/${num}`);
   
   // Toggle active class
   document.querySelectorAll('.variant').forEach(v => v.classList.remove('active'));
@@ -2230,7 +2274,7 @@ let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    renderDailyChart(`v${currentVariant}-daily-chart`, currentData, currentVariant);
+    if (currentData) renderDailyChart(`v${currentVariant}-daily-chart`, currentData, currentVariant);
   }, 200);
 });
 
@@ -2238,11 +2282,6 @@ window.addEventListener('resize', () => {
 // INITIALIZATION
 // ============================================
 document.addEventListener('DOMContentLoaded', async () => {
-  // Load saved subscriptions first (existing behavior)
-  const savedSubs = localStorage.getItem('ut-subscriptions');
-  if (savedSubs) {
-    try { subscriptions = JSON.parse(savedSubs); } catch (e) {}
-  }
   setupDragAndDrop();
   // Try fetched usage.json
   const records = await loadUsageJson();
@@ -2261,11 +2300,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
   handleHash();
-
-  // Initialize Lucide icons
-  if (typeof lucide !== 'undefined') {
-    lucide.createIcons();
-  }
 });
 </script>
 </body>
