@@ -148,3 +148,30 @@ def test_main_writes_usage_json(tmp_path, capsys):
     assert rec["agent"] == "main"
     assert rec["billing"] == "oauth"
     assert rec["modelId"] == "gpt-5.5"
+
+
+def test_classify_billing_custom_oauth_providers():
+    import export_usage as eu
+    assert eu.classify_billing("xai") == "api"
+    assert eu.classify_billing("xai", {"xai"}) == "oauth"
+    assert eu.classify_billing("openai-codex", {"xai"}) == "api"
+
+
+def test_main_oauth_providers_flag(tmp_path):
+    import export_usage as eu
+    agents = tmp_path / "agents"
+    (agents / "main" / "sessions").mkdir(parents=True)
+    (agents / "main" / "sessions" / "s1.trajectory.jsonl").write_text(
+        (ROOT / "tests" / "fixtures" / "sample-codex.trajectory.jsonl").read_text()
+    )
+    out = tmp_path / "usage.json"
+    # Fixture provider is openai-codex; exclude it from the OAuth set
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--out", str(out),
+        "--oauth-providers", "xai",
+    ])
+    assert rc == 0
+    rec = json.loads(out.read_text())["records"][0]
+    assert rec["provider"] == "openai-codex"
+    assert rec["billing"] == "api"

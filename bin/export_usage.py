@@ -15,13 +15,13 @@ API_PROVIDERS = {
 }
 
 
-def classify_billing(provider):
-    if provider in OAUTH_PROVIDERS:
+def classify_billing(provider, oauth_providers=None):
+    if provider in (oauth_providers if oauth_providers is not None else OAUTH_PROVIDERS):
         return "oauth"
     return "api"
 
 
-def extract_record_from_event(event, agent):
+def extract_record_from_event(event, agent, oauth_providers=None):
     """Turn a model.completed trajectory event into a flat usage record.
 
     Prefers the per-message usage snapshot (which carries cost). Falls back
@@ -71,7 +71,7 @@ def extract_record_from_event(event, agent):
         "provider": provider,
         "modelId": event.get("modelId"),
         "modelApi": event.get("modelApi"),
-        "billing": classify_billing(provider),
+        "billing": classify_billing(provider, oauth_providers),
         "workspaceDir": event.get("workspaceDir"),
     })
     return rec
@@ -92,7 +92,7 @@ def iter_completed_events(path):
                 yield event
 
 
-def walk_agents_dir(agents_dir):
+def walk_agents_dir(agents_dir, oauth_providers=None):
     """Walk agents/<agent>/sessions/*.trajectory.jsonl and return flat records."""
     base = Path(agents_dir)
     records = []
@@ -100,7 +100,9 @@ def walk_agents_dir(agents_dir):
         agent = sessions_dir.parent.name
         for traj in sorted(sessions_dir.glob("*.trajectory.jsonl")):
             for event in iter_completed_events(traj):
-                rec = extract_record_from_event(event, agent=agent)
+                rec = extract_record_from_event(
+                    event, agent=agent, oauth_providers=oauth_providers
+                )
                 if rec is not None:
                     records.append(rec)
     return records
@@ -150,9 +152,22 @@ def main(argv=None):
         default=None,
         help="Only include events newer than N. Accepts '7d', '24h', '30m', or an ISO timestamp.",
     )
+    parser.add_argument(
+        "--oauth-providers",
+        default=None,
+        help=(
+            "Comma-separated provider ids billed via subscription/OAuth "
+            f"(default: {','.join(sorted(OAUTH_PROVIDERS))}). "
+            "Example: --oauth-providers openai-codex,claude-cli,acpx,xai"
+        ),
+    )
     args = parser.parse_args(argv)
 
-    records = walk_agents_dir(args.agents_dir)
+    oauth_providers = None
+    if args.oauth_providers is not None:
+        oauth_providers = {p.strip() for p in args.oauth_providers.split(",") if p.strip()}
+
+    records = walk_agents_dir(args.agents_dir, oauth_providers=oauth_providers)
     if args.since:
         cutoff = parse_since(args.since)
         records = filter_since(records, cutoff)
@@ -169,7 +184,10 @@ def main(argv=None):
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, indent=2))
+    # Write atomically so a concurrent page fetch never sees a partial file
+    tmp_path = out_path.with_name(out_path.name + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2))
+    tmp_path.replace(out_path)
 
     # Summary to stderr
     cost_known = sum(1 for r in records if r["costUsd"] is not None)
