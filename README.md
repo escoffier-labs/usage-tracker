@@ -5,7 +5,7 @@
 <h1 align="center">Usage Tracker</h1>
 
 <p align="center">
-  <strong>OpenClaw session cost analytics for API spend, OAuth subscription value, and model usage.</strong>
+  <strong>OpenClaw + Claude Code session cost analytics for API spend, OAuth subscription value, and model usage.</strong>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT license">
 </p>
 
-OpenClaw session cost analytics. Single static page plus a tiny Python exporter that reads OpenClaw trajectory jsonls and writes a flat `data/usage.json` the page renders.
+Machine-wide AI session cost analytics. Single static page plus a tiny Python exporter that reads OpenClaw session transcripts and Claude Code project transcripts and writes a flat `data/usage.json` the page renders.
 
 Splits real **API spend** from **OAuth subscription burn** (what your Codex Pro / Claude Max calls would have cost at API rates) so you can see what each session actually cost and whether your subscriptions are paying off.
 
@@ -26,7 +26,7 @@ Splits real **API spend** from **OAuth subscription burn** (what your Codex Pro 
 git clone https://github.com/escoffier-labs/usage-tracker.git
 cd usage-tracker
 
-# Build data/usage.json from your OpenClaw sessions
+# Build data/usage.json from your OpenClaw + Claude Code sessions
 python3 bin/export_usage.py --since 30d
 
 # Serve the page
@@ -46,14 +46,23 @@ systemctl --user enable --now usage-tracker-export.timer
 
 (Edit the service file's `ExecStart` path to point at wherever you cloned this repo.)
 
+## Billing classification
+
+Each call is classified as `oauth` (subscription burn, billed flat) or `api` (real per-token spend):
+
+- Calls served by a subscription backend are detected from the API id (`openai-chatgpt-responses`, `cli`, `google-gemini-cli`) regardless of provider.
+- Providers in the OAuth set (`openai-codex`, `claude-cli`, `acpx`, `google-gemini-cli` by default) are `oauth`; everything else is `api`.
+- Override per export with `--oauth-providers`. Example: if grok runs on a SuperGrok subscription via device-code OAuth, use `--oauth-providers openai-codex,claude-cli,acpx,google-gemini-cli,xai`.
+- Claude Code records are always `oauth` (Claude Code transcripts carry token counts but no cost; the exporter estimates the API-equivalent cost from a built-in Anthropic pricing table). Disable the source with `--no-claude-code` or point elsewhere with `--claude-projects PATH`.
+
 ## Drag-and-drop fallback
 
-If `data/usage.json` is missing (e.g., you opened the page on a different machine), drop one or more `*.trajectory.jsonl` files or a previously-exported `usage.json` onto the page. Records are parsed client-side and cached in localStorage.
+If `data/usage.json` is missing (e.g., you opened the page on a different machine), drop one or more OpenClaw `*.trajectory.jsonl` files or a previously-exported `usage.json` onto the page. Records are parsed client-side and cached in localStorage.
 
 ## What it shows
 
 - **API spend** versus **OAuth value extracted** for the period
-- Per-agent breakdown (main, coder, codex-builder, claude-builder, ...)
+- Per-agent breakdown (main, coder, codex-builder, claude-code, ...)
 - Sessions table grouped by session id, with per-call drill-down
 - Per-model bar chart, stacked by billing type
 - Daily cost time series, stacked by billing type
@@ -62,7 +71,7 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 
 ## Architecture
 
-- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.trajectory.jsonl`, extracts `model.completed` events, writes a flat array to `data/usage.json`.
+- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session) plus `~/.claude/projects/*/*.jsonl` (Claude Code), extracts per-call usage from assistant messages, writes a flat array to `data/usage.json`. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
 - `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
 - No backend. localStorage caches the last load and your subscription settings.
 

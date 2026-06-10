@@ -6,10 +6,12 @@
 #   systemctl --user enable --now usage-tracker-export.timer
 
 [Unit]
-Description=Refresh usage-tracker data/usage.json from OpenClaw sessions
+Description=Refresh usage-tracker data/usage.json from OpenClaw + Claude Code sessions
 After=default.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/env python3 %h/repos/usage-tracker/bin/export_usage.py --since 30d
 # Adjust the path above to wherever you cloned this repo.
+# Add --oauth-providers ... if some of your providers are subscription-billed
+# (e.g. xai via SuperGrok device-code OAuth).
