@@ -996,6 +996,18 @@ function normalizeRecords(records) {
 
   const missingCost = records.filter(r => r.costUsd == null).length;
 
+  // Calendar span of the loaded window, not the count of days that had calls.
+  // Subscription ROI prorates against this so quiet days still count toward
+  // the subscription cost instead of inflating the return.
+  const dailyDates = Object.keys(dailyData).sort();
+  let periodDays = 0;
+  if (dailyDates.length) {
+    const first = new Date(dailyDates[0] + 'T00:00:00Z');
+    const last = new Date(dailyDates[dailyDates.length - 1] + 'T00:00:00Z');
+    const spanMs = last.getTime() - first.getTime();
+    periodDays = Math.round(spanMs / 86400000) + 1;
+  }
+
   return {
     sessions: calls,
     sessionGroups: arrify(sessionGroups),
@@ -1010,6 +1022,7 @@ function normalizeRecords(records) {
     dailyData: Object.keys(dailyData)
       .sort()
       .map(date => ({ date, ...dailyData[date] })),
+    periodDays,
   };
 }
 
@@ -2038,7 +2051,7 @@ function renderSubscriptionROI(containerId, data, variant) {
   const oauthValue = data.oauthCost || 0;
   // Prorate the subscription cost to the loaded data span so a 7d or 31d
   // window compares like with like (30.4375 = average days per month)
-  const periodDays = (data.dailyData || []).length || 30.4375;
+  const periodDays = data.periodDays || (data.dailyData || []).length || 30.4375;
   const periodSub = monthlySub * (periodDays / 30.4375);
   const savings = oauthValue - periodSub;
   const roi = periodSub > 0 ? (oauthValue / periodSub) : 0;

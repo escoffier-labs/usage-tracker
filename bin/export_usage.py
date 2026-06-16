@@ -355,10 +355,20 @@ def parse_since(spec, now=None):
 
 
 def iso_to_epoch(iso):
+    """Convert an ISO timestamp to a UTC epoch for mtime comparison.
+
+    File mtimes (st_mtime) are UTC epoch seconds, so the cutoff must be too.
+    A naive ISO string (no offset) is treated as UTC rather than local time,
+    otherwise the mtime prefilter would silently drop in-window records in
+    any timezone offset from UTC.
+    """
     try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 def filter_since(records, cutoff_iso):
