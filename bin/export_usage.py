@@ -343,8 +343,16 @@ def parse_since(spec, now=None):
         now = datetime.now(timezone.utc)
     m = re.fullmatch(r"(\d+)([dhm])", spec.strip())
     if not m:
-        # Assume already an ISO string
-        return spec
+        # Assume already an ISO string. Normalize a naive value to UTC so the
+        # dashboard (which compares against the UTC generatedAt) prorates the
+        # window correctly regardless of the viewer's local timezone.
+        try:
+            dt = datetime.fromisoformat(spec.strip().replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return spec
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
     n, unit = int(m.group(1)), m.group(2)
     delta = {
         "d": timedelta(days=n),
@@ -470,6 +478,10 @@ def main(argv=None):
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "agentsDir": args.agents_dir,
         "since": args.since,
+        # Resolved ISO cutoff for the window so the dashboard can prorate the
+        # subscription cost over the actual requested span, not just the days
+        # that happened to have calls.
+        "sinceCutoff": cutoff,
         "records": records,
     }
 

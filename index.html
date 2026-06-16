@@ -709,6 +709,10 @@
 // ============================================
 let currentVariant = parseInt(localStorage.getItem('ut-variant') || '1');
 let currentData = null;
+// Metadata for the currently loaded window (from the exported payload), used to
+// prorate subscription cost over the actual requested span. Null for raw
+// drag-and-drop of trajectory files that carry no window.
+let loadedWindow = null;
 let sessionSortKey = 'cost';
 let sessionSortDir = 'desc';
 
@@ -731,6 +735,11 @@ async function loadUsageJson() {
     const res = await fetch('./data/usage.json', { cache: 'no-store' });
     if (!res.ok) throw new Error('not found');
     const payload = await res.json();
+    loadedWindow = {
+      since: payload.since || null,
+      sinceCutoff: payload.sinceCutoff || null,
+      generatedAt: payload.generatedAt || null,
+    };
     return payload.records || [];
   } catch (e) {
     console.info('[usage-tracker] data/usage.json not present; waiting for drag-and-drop');
@@ -762,7 +771,7 @@ function setupDragAndDrop() {
     if (records.length) {
       currentData = normalizeRecords(records);
       try {
-        localStorage.setItem('ut-usage-cache', JSON.stringify(records));
+        localStorage.setItem('ut-usage-cache', JSON.stringify({ records, window: loadedWindow }));
       } catch (err) {
         console.warn('[usage-tracker] cache write failed (quota?):', err.message);
       }
@@ -773,6 +782,9 @@ function setupDragAndDrop() {
 
 async function parseDroppedFiles(files) {
   const records = [];
+  // Clear any window from a previously loaded usage.json so dropped raw files
+  // fall back to their own record span instead of reusing a stale --since window.
+  loadedWindow = null;
   for (const f of files) {
     const text = await f.text();
     if (f.name.endsWith('.json')) {
@@ -780,7 +792,14 @@ async function parseDroppedFiles(files) {
       try {
         const parsed = JSON.parse(text);
         if (Array.isArray(parsed)) records.push(...parsed);
-        else if (parsed && Array.isArray(parsed.records)) records.push(...parsed.records);
+        else if (parsed && Array.isArray(parsed.records)) {
+          records.push(...parsed.records);
+          loadedWindow = {
+            since: parsed.since || null,
+            sinceCutoff: parsed.sinceCutoff || null,
+            generatedAt: parsed.generatedAt || null,
+          };
+        }
       } catch (e) {
         console.warn('[usage-tracker] failed to parse', f.name, e);
       }
@@ -853,6 +872,30 @@ function clientExtractRecord(event, agent) {
   rec.billing = oauthSet.has(provider) ? 'oauth' : 'api';
   rec.workspaceDir = event.workspaceDir;
   return rec;
+}
+
+// Number of days in the loaded query window, for prorating subscription cost.
+// Prefers the resolved ISO cutoff; falls back to parsing a relative spec like
+// "30d" / "24h" / "30m". Returns null when no usable window is present.
+function windowDays(window) {
+  if (!window) return null;
+  const gen = window.generatedAt ? new Date(window.generatedAt) : null;
+  if (window.sinceCutoff && gen && !isNaN(gen)) {
+    const cut = new Date(window.sinceCutoff);
+    if (!isNaN(cut)) {
+      const d = (gen.getTime() - cut.getTime()) / 86400000;
+      // Keep fractional days so sub-day windows (e.g. 12h) prorate accurately;
+      // display sites round for presentation.
+      if (isFinite(d) && d > 0) return d;
+    }
+  }
+  const m = typeof window.since === 'string' && window.since.match(/^(\d+)([dhm])$/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const days = m[2] === 'd' ? n : m[2] === 'h' ? n / 24 : n / 1440;
+    return days > 0 ? days : null;
+  }
+  return null;
 }
 
 function normalizeRecords(records) {
@@ -996,16 +1039,22 @@ function normalizeRecords(records) {
 
   const missingCost = records.filter(r => r.costUsd == null).length;
 
-  // Calendar span of the loaded window, not the count of days that had calls.
-  // Subscription ROI prorates against this so quiet days still count toward
-  // the subscription cost instead of inflating the return.
-  const dailyDates = Object.keys(dailyData).sort();
-  let periodDays = 0;
-  if (dailyDates.length) {
-    const first = new Date(dailyDates[0] + 'T00:00:00Z');
-    const last = new Date(dailyDates[dailyDates.length - 1] + 'T00:00:00Z');
-    const spanMs = last.getTime() - first.getTime();
-    periodDays = Math.round(spanMs / 86400000) + 1;
+  // Subscription ROI prorates against the actual requested window so quiet days
+  // (including leading/trailing days with no calls) still count toward the
+  // subscription cost instead of inflating the return. Prefer the real query
+  // window from the exported payload; fall back to the record span only when no
+  // window metadata is available (e.g. raw trajectory drag-and-drop).
+  let periodDays = windowDays(loadedWindow);
+  if (!periodDays) {
+    const dailyDates = Object.keys(dailyData).sort();
+    if (dailyDates.length) {
+      const first = new Date(dailyDates[0] + 'T00:00:00Z');
+      const last = new Date(dailyDates[dailyDates.length - 1] + 'T00:00:00Z');
+      const spanMs = last.getTime() - first.getTime();
+      periodDays = Math.round(spanMs / 86400000) + 1;
+    } else {
+      periodDays = 0;
+    }
   }
 
   return {
@@ -2309,7 +2358,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cached = localStorage.getItem('ut-usage-cache');
     if (cached) {
       try {
-        const recs = JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        // Support the legacy bare-array cache and the newer {records, window} shape.
+        let recs;
+        if (Array.isArray(parsed)) {
+          recs = parsed;
+          loadedWindow = null;
+        } else {
+          recs = parsed.records || [];
+          loadedWindow = parsed.window || null;
+        }
         currentData = normalizeRecords(recs);
         renderAll();
       } catch (e) { /* show empty state */ }
