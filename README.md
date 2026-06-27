@@ -20,6 +20,16 @@ Machine-wide AI session cost analytics. Single static page plus a tiny Python ex
 
 Splits real **API spend** from **OAuth subscription burn** (what your Codex Pro / Claude Max calls would have cost at API rates) so you can see what each session actually cost and whether your subscriptions are paying off.
 
+## What it shows
+
+- **API spend** versus **OAuth value extracted** for the period
+- Per-agent breakdown (main, coder, codex-builder, claude-code, codex-cli, ...)
+- Sessions table grouped by session id, with per-call drill-down
+- Per-model bar chart, stacked by billing type
+- Daily cost time series, stacked by billing type
+- Subscription ROI: monthly subscription costs versus OAuth value extracted
+- Five design variants to choose from
+
 ## Quick start
 
 ```bash
@@ -60,16 +70,6 @@ Each call is classified as `oauth` (subscription burn, billed flat) or `api` (re
 ## Drag-and-drop fallback
 
 If `data/usage.json` is missing (e.g., you opened the page on a different machine), drop one or more OpenClaw `*.trajectory.jsonl` files or a previously-exported `usage.json` onto the page. Records are parsed client-side and cached in localStorage.
-
-## What it shows
-
-- **API spend** versus **OAuth value extracted** for the period
-- Per-agent breakdown (main, coder, codex-builder, claude-code, codex-cli, ...)
-- Sessions table grouped by session id, with per-call drill-down
-- Per-model bar chart, stacked by billing type
-- Daily cost time series, stacked by billing type
-- Subscription ROI: monthly subscription costs versus OAuth value extracted
-- Five design variants to choose from
 
 ## Architecture
 
