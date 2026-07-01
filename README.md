@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white" alt="HTML5">
-  <img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3">
-  <img src="https://img.shields.io/badge/OpenClaw-usage_analytics-ef4444?style=for-the-badge" alt="OpenClaw usage analytics">
-  <img src="https://img.shields.io/badge/static_page-no_backend-0f766e?style=for-the-badge" alt="Static page, no backend">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT license">
+  <img src="https://shieldcn.dev/badge/HTML5-E34F26.svg?logo=html5&logoColor=white" alt="HTML5">
+  <img src="https://shieldcn.dev/badge/Python-3.x-3776AB.svg?logo=python&logoColor=white" alt="Python 3">
+  <img src="https://shieldcn.dev/badge/OpenClaw-usage_analytics-ef4444.svg" alt="OpenClaw usage analytics">
+  <img src="https://shieldcn.dev/badge/static_page-no_backend-0f766e.svg" alt="Static page, no backend">
+  <img src="https://shieldcn.dev/badge/license-MIT-green.svg" alt="MIT license">
 </p>
 
 Machine-wide AI session cost analytics. Single static page plus a tiny Python exporter that reads OpenClaw session transcripts, Claude Code project transcripts, and Codex CLI rollouts, and writes a flat `data/usage.json` the page renders.
