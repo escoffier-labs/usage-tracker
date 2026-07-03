@@ -1,51 +1,59 @@
 <p align="center">
-  <img src="docs/assets/usage-tracker-banner.jpg" alt="Usage Tracker banner">
+  <img src="docs/assets/usage-tracker-social-preview.jpg" alt="Usage Tracker banner" width="900">
 </p>
 
 <h1 align="center">Usage Tracker</h1>
 
 <p align="center">
-  <strong>OpenClaw + Claude Code session cost analytics for API spend, OAuth subscription value, and model usage.</strong>
+  <strong>Machine-wide session cost analytics for OpenClaw, Claude Code, and Codex CLI, with API spend separated from OAuth subscription value.</strong>
 </p>
 
 <p align="center">
-  <img src="https://shieldcn.dev/badge/HTML5-E34F26.svg?logo=html5&logoColor=white" alt="HTML5">
-  <img src="https://shieldcn.dev/badge/Python-3.x-3776AB.svg?logo=python&logoColor=white" alt="Python 3">
-  <img src="https://shieldcn.dev/badge/OpenClaw-usage_analytics-ef4444.svg" alt="OpenClaw usage analytics">
-  <img src="https://shieldcn.dev/badge/static_page-no_backend-0f766e.svg" alt="Static page, no backend">
-  <img src="https://shieldcn.dev/badge/license-MIT-green.svg" alt="MIT license">
+  <a href="#install"><b>Install</b></a>
+  &middot;
+  <a href="#try-it-in-60-seconds"><b>Try it in 60 seconds</b></a>
+  &middot;
+  <a href="#billing-classification"><b>Billing classification</b></a>
 </p>
 
-Machine-wide AI session cost analytics. Single static page plus a tiny Python exporter that reads OpenClaw session transcripts, Claude Code project transcripts, and Codex CLI rollouts, and writes a flat `data/usage.json` the page renders.
+<p align="center">
+  <img src="https://shieldcn.dev/github/ci/escoffier-labs/usage-tracker.svg?workflow=tests.yml&branch=main&label=ci&size=xs" alt="CI status">
+  <img src="https://shieldcn.dev/badge/HTML5-E34F26.svg?logo=html5&logoColor=white&size=xs" alt="HTML5">
+  <img src="https://shieldcn.dev/badge/Python-3.x-3776AB.svg?logo=python&logoColor=white&size=xs" alt="Python 3">
+  <img src="https://shieldcn.dev/badge/OpenClaw-usage_analytics-ef4444.svg?size=xs" alt="OpenClaw usage analytics">
+  <img src="https://shieldcn.dev/badge/static_page-no_backend-0f766e.svg?size=xs" alt="Static page, no backend">
+  <img src="https://shieldcn.dev/badge/license-MIT-green.svg?size=xs" alt="MIT license">
+</p>
 
-Splits real **API spend** from **OAuth subscription burn** (what your Codex Pro / Claude Max calls would have cost at API rates) so you can see what each session actually cost and whether your subscriptions are paying off.
+See which sessions cost real API money, which sessions spent subscription value, and which models are missing price data.
 
-## What it shows
+<!-- proof: app screenshot with sample data lands here -->
 
-- **API spend** versus **OAuth value extracted** for the period
-- Per-agent breakdown (main, coder, codex-builder, claude-code, codex-cli, ...)
-- Sessions table grouped by session id, with per-call drill-down
-- Per-model bar chart, stacked by billing type
-- Daily cost time series, stacked by billing type
-- Subscription ROI: monthly subscription costs versus OAuth value extracted
-- Five design variants to choose from
+## What it does
 
-## Quick start
+usage-tracker is a static browser dashboard plus stdlib-only Python exporter that turns local OpenClaw session transcripts, Claude Code project transcripts, and Codex CLI rollouts into a flat `data/usage.json`. It exists to split real per-token API spend from OAuth subscription burn, so session cost, model usage, and subscription ROI are visible in the same page. It differs from dragging raw logs into a spreadsheet because the exporter reads the complete plain transcript locations, skips undercounting `*.trajectory.jsonl` files, estimates API-equivalent cost for CLI transcripts that do not carry cost, and keeps the page offline with `localStorage` persistence instead of a backend. The dashboard shows per-agent, per-session, per-model, daily, and subscription views across five design variants.
+
+## Install
 
 ```bash
 git clone https://github.com/escoffier-labs/usage-tracker.git
 cd usage-tracker
+```
 
-# Build data/usage.json from your OpenClaw + Claude Code sessions
+No package install is required for the app. The page is single-file HTML with vanilla JavaScript and inline SVG charts, and the exporter uses only the Python standard library.
+
+## Try it in 60 seconds
+
+Build `data/usage.json` from your local session transcripts and serve the page:
+
+```bash
 python3 bin/export_usage.py --since 30d
-
-# Serve the page
 python3 -m http.server 5200
 ```
 
 Open http://localhost:5200.
 
-For an always-fresh dataset, install the opt-in user-systemd timer (5 minute refresh):
+For an always-fresh dataset, install the opt-in user-systemd timer with a 5 minute refresh:
 
 ```bash
 cp bin/usage-tracker-export.service ~/.config/systemd/user/
@@ -54,7 +62,17 @@ systemctl --user daemon-reload
 systemctl --user enable --now usage-tracker-export.timer
 ```
 
-(Edit the service file's `ExecStart` path to point at wherever you cloned this repo.)
+Edit the service file's `ExecStart` path to point at wherever you cloned this repo.
+
+## What the dashboard shows
+
+- **API spend** versus **OAuth value extracted** for the period
+- Per-agent breakdown, including main, coder, codex-builder, claude-code, and codex-cli
+- Sessions table grouped by session id, with per-call drill-down
+- Per-model bar chart, stacked by billing type
+- Daily cost time series, stacked by billing type
+- Subscription ROI: monthly subscription costs versus OAuth value extracted
+- Five design variants to choose from
 
 ## Billing classification
 
@@ -69,21 +87,29 @@ Each call is classified as `oauth` (subscription burn, billed flat) or `api` (re
 
 ## Drag-and-drop fallback
 
-If `data/usage.json` is missing (e.g., you opened the page on a different machine), drop one or more OpenClaw `*.trajectory.jsonl` files or a previously-exported `usage.json` onto the page. Records are parsed client-side and cached in localStorage.
+If `data/usage.json` is missing, for example because you opened the page on a different machine, drop one or more OpenClaw `*.trajectory.jsonl` files or a previously-exported `usage.json` onto the page. Records are parsed client-side and cached in `localStorage`.
 
 ## Architecture
 
-- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/sessions/**/*.jsonl` (Codex CLI rollouts), extracts per-call usage, writes a flat array to `data/usage.json`. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
-- `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
-- No backend. localStorage caches the last load and your subscription settings.
+- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/sessions/**/*.jsonl` (Codex CLI rollouts), extracts per-call usage, and writes a flat array to `data/usage.json`. OpenClaw's `*.trajectory.jsonl` files are not used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
+- `index.html` fetches `data/usage.json` on load, falls back to drag-and-drop, normalizes records into renderer-friendly aggregates, and displays the dashboard.
+- No backend. `localStorage` caches the last load and your subscription settings.
 
 ## Development
 
 ```bash
-python3 -m pytest tests/   # exporter tests
+python3 -m pytest tests/     # exporter tests
 python3 -m http.server 5200  # page
 ```
 
+## Why not raw trajectory files, spreadsheets, or a backend dashboard?
+
+Raw OpenClaw `*.trajectory.jsonl` files are useful as a fallback input when `data/usage.json` is absent, but this repo does not use them for the exporter because they exist for only a fraction of runs and undercount usage by an order of magnitude. A spreadsheet can analyze a flat export after you build the mapping yourself, but usage-tracker already walks the transcript locations, classifies API versus OAuth billing, and renders the per-agent, session, model, daily, and subscription views. A backend dashboard would add a service to operate; this project deliberately keeps preprocessing offline and the viewer static.
+
+## What usage-tracker is not
+
+usage-tracker is not a hosted billing service, a provider invoice, or a data warehouse. Claude Code and Codex CLI transcripts carry no cost, so their costs are API-equivalent estimates from the built-in pricing table, and unknown models export `costUsd: null` instead of being silently priced at zero. The page does not persist data to a server: settings, UI preferences, and the last-loaded payload stay in `localStorage`.
+
 ## License
 
-MIT
+MIT. usage-tracker is maintained by `escoffier-labs/usage-tracker`.
