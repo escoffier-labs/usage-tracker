@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/usage-tracker-banner.jpg" alt="Usage Tracker banner" width="900">
+  <img src="docs/assets/usage-tracker-social-preview.jpg" alt="Usage Tracker banner" width="900">
 </p>
 
 <h1 align="center">Usage Tracker</h1>
