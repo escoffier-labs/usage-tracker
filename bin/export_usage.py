@@ -15,6 +15,7 @@ Sources:
 import argparse
 import json
 import re
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -334,6 +335,54 @@ def walk_codex_sessions(sessions_dir, mtime_cutoff=None):
     return records
 
 
+def walk_codex_state_db(db_path, existing_session_ids, mtime_cutoff=None):
+    """Backfill totals for Codex threads without retained rollout usage.
+
+    The state database only has a thread-level token total, so these records
+    deliberately leave the token breakdown and cost unknown.
+    """
+    records = []
+    try:
+        db = sqlite3.connect(f"file:{Path(db_path)}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return records
+    try:
+        rows = db.execute(
+            "SELECT id, updated_at, model_provider, cwd, tokens_used, model "
+            "FROM threads WHERE tokens_used > 0"
+        )
+        for session_id, updated_at, provider, cwd, tokens, model in rows:
+            if session_id in existing_session_ids:
+                continue
+            if mtime_cutoff is not None and updated_at < mtime_cutoff:
+                continue
+            ts = datetime.fromtimestamp(updated_at, timezone.utc).isoformat()
+            label = f"{Path(cwd).name}:{session_id[:8]}" if cwd else None
+            records.append({
+                "ts": ts,
+                "agent": "codex-cli",
+                "sessionId": session_id,
+                "sessionKey": label,
+                "runId": None,
+                "provider": provider or "openai",
+                "modelId": model,
+                "modelApi": "codex-state-db",
+                "billing": "oauth",
+                "workspaceDir": cwd,
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": tokens,
+                "costUsd": None,
+            })
+    except sqlite3.Error:
+        return []
+    finally:
+        db.close()
+    return records
+
+
 def parse_since(spec, now=None):
     """Turn '7d' / '24h' / '30m' into an ISO cutoff timestamp.
 
@@ -407,6 +456,13 @@ def main(argv=None):
         help="Skip Claude Code transcripts entirely",
     )
     parser.add_argument(
+        "--extra-claude-projects",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Additional Claude Code projects directory (repeatable)",
+    )
+    parser.add_argument(
         "--codex-sessions",
         default=str(Path.home() / ".codex" / "sessions"),
         help=(
@@ -418,6 +474,20 @@ def main(argv=None):
         "--no-codex",
         action="store_true",
         help="Skip Codex CLI rollouts entirely",
+    )
+    parser.add_argument(
+        "--extra-codex-sessions",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Additional Codex sessions or archived sessions directory (repeatable)",
+    )
+    parser.add_argument(
+        "--extra-codex-state-db",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Additional Codex state_5.sqlite database for missing-thread backfill (repeatable)",
     )
     parser.add_argument(
         "--out",
@@ -438,6 +508,11 @@ def main(argv=None):
             "Example: --oauth-providers openai-codex,claude-cli,acpx,xai"
         ),
     )
+    parser.add_argument(
+        "--summary-json",
+        action="store_true",
+        help="Print a compact machine-readable export summary to stdout",
+    )
     args = parser.parse_args(argv)
 
     oauth_providers = None
@@ -453,20 +528,45 @@ def main(argv=None):
     openclaw_count = len(records)
 
     claude_count = 0
-    if not args.no_claude_code and Path(args.claude_projects).is_dir():
-        claude_records = walk_claude_projects(
-            args.claude_projects, mtime_cutoff=mtime_cutoff
-        )
-        claude_count = len(claude_records)
-        records.extend(claude_records)
+    if not args.no_claude_code:
+        for projects_dir in [args.claude_projects, *args.extra_claude_projects]:
+            if not Path(projects_dir).is_dir():
+                continue
+            claude_records = walk_claude_projects(
+                projects_dir, mtime_cutoff=mtime_cutoff
+            )
+            claude_count += len(claude_records)
+            records.extend(claude_records)
 
     codex_count = 0
-    if not args.no_codex and Path(args.codex_sessions).is_dir():
-        codex_records = walk_codex_sessions(
-            args.codex_sessions, mtime_cutoff=mtime_cutoff
-        )
-        codex_count = len(codex_records)
-        records.extend(codex_records)
+    if not args.no_codex:
+        default_sessions = Path.home() / ".codex" / "sessions"
+        codex_dirs = [args.codex_sessions, *args.extra_codex_sessions]
+        state_dbs = list(args.extra_codex_state_db)
+        if Path(args.codex_sessions) == default_sessions:
+            codex_dirs.append(str(Path.home() / ".codex" / "archived_sessions"))
+            state_dbs.insert(0, str(Path.home() / ".codex" / "state_5.sqlite"))
+        for sessions_dir in codex_dirs:
+            if not Path(sessions_dir).is_dir():
+                continue
+            codex_records = walk_codex_sessions(
+                sessions_dir, mtime_cutoff=mtime_cutoff
+            )
+            codex_count += len(codex_records)
+            records.extend(codex_records)
+        existing_session_ids = {
+            r["sessionId"] for r in records
+            if r.get("agent") == "codex-cli" and r.get("sessionId")
+        }
+        for state_db in state_dbs:
+            if not Path(state_db).is_file():
+                continue
+            backfills = walk_codex_state_db(
+                state_db, existing_session_ids, mtime_cutoff=mtime_cutoff
+            )
+            codex_count += len(backfills)
+            records.extend(backfills)
+            existing_session_ids.update(r["sessionId"] for r in backfills)
 
     if cutoff:
         records = filter_since(records, cutoff)
@@ -501,6 +601,18 @@ def main(argv=None):
         f"{cost_known} with cost, {cost_missing} missing)",
         file=sys.stderr,
     )
+    if args.summary_json:
+        print(json.dumps({
+            "records": len(records),
+            "sources": {
+                "openclaw": openclaw_count,
+                "claudeCode": claude_count,
+                "codexCli": codex_count,
+            },
+            "costKnown": cost_known,
+            "costMissing": cost_missing,
+            "totalTokens": sum(r.get("totalTokens") or 0 for r in records),
+        }, separators=(",", ":")))
     return 0
 
 
