@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  Static page plus a tiny Python exporter: OpenClaw, Claude Code, and Codex session spend. API cost vs OAuth subscription value, per model and per agent. No backend.
+  Static page plus a tiny Python exporter: OpenClaw, Claude Code, and Codex session spend. API cost vs OAuth subscription value, per model and per agent. No backend or external runtime assets.
 </p>
 
 <p align="center">
@@ -32,7 +32,8 @@
 git clone https://github.com/escoffier-labs/usage-tracker.git
 cd usage-tracker
 # export local session transcripts to data/usage.json, then open the static page
-python export.py    # see repo for exact entrypoint
+python3 bin/export_usage.py --since 30d
+python3 -m http.server 5200
 ```
 
 ## What it does
@@ -42,7 +43,7 @@ python export.py    # see repo for exact entrypoint
 | **Collect** | Local transcripts | OpenClaw, Claude Code, Codex rollouts |
 | **Split** | API vs OAuth value | What you paid vs what subscriptions absorbed |
 | **Chart** | Models and agents | Daily series, per-model bars, session tables |
-| **Stay local** | Static HTML | No backend, no phone-home |
+| **Stay local** | Static HTML | No backend or third-party requests |
 
 
 ## Quick start
@@ -99,7 +100,9 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 ## Development
 
 ```bash
+python3 -m pip install pytest
 python3 -m pytest tests/   # exporter tests
+node tests/frontend.test.js  # dependency-free frontend behavior checks
 python3 -m http.server 5200  # page
 ```
 
@@ -107,9 +110,9 @@ Example multi-machine export:
 
 ```bash
 python3 bin/export_usage.py \
-  --extra-claude-projects /tmp/gandalf-usage/claude/projects \
-  --extra-codex-sessions /tmp/gandalf-usage/codex \
-  --extra-codex-state-db /tmp/gandalf-usage/codex/state_5.sqlite
+  --extra-claude-projects /tmp/remote-usage/claude/projects \
+  --extra-codex-sessions /tmp/remote-usage/codex \
+  --extra-codex-state-db /tmp/remote-usage/codex/state_5.sqlite
 ```
 
 ## License
