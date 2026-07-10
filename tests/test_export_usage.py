@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -290,3 +291,178 @@ def test_walk_codex_sessions(tmp_path):
     (tree / "rollout-a.jsonl").write_text(CODEX_FIXTURE.read_text())
     records = eu.walk_codex_sessions(tmp_path)
     assert len(records) == 2
+
+
+def _make_codex_state_db(path, rows):
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, "
+            "created_at INTEGER, updated_at INTEGER, model_provider TEXT, cwd TEXT, "
+            "tokens_used INTEGER, model TEXT)"
+        )
+        db.executemany(
+            "INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows
+        )
+
+
+def test_walk_codex_state_db_backfills_only_missing_threads(tmp_path):
+    import export_usage as eu
+    db_path = tmp_path / "state_5.sqlite"
+    _make_codex_state_db(db_path, [
+        ("present", "/rollout/present.jsonl", 100, 200, "openai", "/repo/a", 1200, "gpt-5.5"),
+        ("missing", "/rollout/missing.jsonl", 300, 400, "openai", "/repo/b", 3400, "gpt-5.5"),
+        ("empty", "/rollout/empty.jsonl", 500, 600, "openai", "/repo/c", 0, "gpt-5.5"),
+    ])
+    records = eu.walk_codex_state_db(db_path, {"present"})
+    assert len(records) == 1
+    record = records[0]
+    assert record["sessionId"] == "missing"
+    assert record["sessionKey"] == "b:missing"
+    assert record["totalTokens"] == 3400
+    assert record["costUsd"] is None
+    assert record["ts"] == "1970-01-01T00:06:40+00:00"
+
+
+def test_main_includes_repeatable_extra_sources_and_state_backfill(tmp_path):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    extra_projects = tmp_path / "extra-projects"
+    (extra_projects / "machine-b").mkdir(parents=True)
+    extra_claude = CLAUDE_FIXTURE.read_text().replace(
+        "aaaa1111-bbbb-cccc-dddd-eeee22223333",
+        "bbbb2222-cccc-dddd-eeee-ffff33334444",
+    )
+    (extra_projects / "machine-b" / "cc2.jsonl").write_text(extra_claude)
+    extra_codex = tmp_path / "extra-codex"
+    extra_codex.mkdir()
+    extra_rollout = CODEX_FIXTURE.read_text().replace(
+        "019e1111-2222-7333-8444-555566667777",
+        "029e2222-3333-7444-8555-666677778888",
+    )
+    (extra_codex / "rollout-2.jsonl").write_text(extra_rollout)
+    state_db = tmp_path / "extra-state.sqlite"
+    _make_codex_state_db(state_db, [
+        ("db-only", "/missing.jsonl", 1700000000, 1700000100, "openai", "/repo/db", 777, "gpt-5.5"),
+    ])
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--extra-claude-projects", str(extra_projects),
+        "--codex-sessions", str(codex),
+        "--extra-codex-sessions", str(extra_codex),
+        "--extra-codex-state-db", str(state_db),
+        "--out", str(out),
+    ])
+    assert rc == 0
+    records = json.loads(out.read_text())["records"]
+    assert sum(r["agent"] == "claude-code" for r in records) == 4
+    assert sum(r["agent"] == "codex-cli" for r in records) == 5
+    assert any(r["sessionId"] == "db-only" for r in records)
+
+
+def test_main_summary_json_prints_machine_readable_counts(tmp_path, capsys):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--summary-json",
+        "--out", str(out),
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert summary["records"] == 6
+    assert summary["sources"] == {"openclaw": 2, "claudeCode": 2, "codexCli": 2}
+    assert summary["costKnown"] == 4
+    assert summary["costMissing"] == 2
+    assert summary["totalTokens"] == sum(
+        r["totalTokens"] for r in json.loads(out.read_text())["records"]
+    )
+
+
+def test_main_deduplicates_repeated_extra_source_paths(tmp_path):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--extra-claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--extra-codex-sessions", str(codex),
+        "--out", str(out),
+    ])
+    assert rc == 0
+    assert len(json.loads(out.read_text())["records"]) == 6
+
+
+def test_main_summary_source_counts_follow_since_filter(tmp_path, capsys):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--since", "2026-06-02T00:00:00.000Z",
+        "--summary-json",
+        "--out", str(out),
+    ])
+    assert rc == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["records"] == 4
+    assert summary["sources"] == {"openclaw": 0, "claudeCode": 2, "codexCli": 2}
+    assert sum(summary["sources"].values()) == summary["records"]
+
+
+def test_main_warns_when_explicit_state_db_is_invalid(tmp_path, capsys):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    invalid_db = tmp_path / "invalid.sqlite"
+    invalid_db.write_text("not sqlite")
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--extra-codex-state-db", str(invalid_db),
+        "--out", str(tmp_path / "usage.json"),
+    ])
+    assert rc == 0
+    stderr = capsys.readouterr().err
+    assert str(invalid_db) in stderr
+    assert "could not read Codex state database" in stderr
+
+
+def test_main_warns_when_explicit_state_db_is_missing(tmp_path, capsys):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    missing_db = tmp_path / "missing.sqlite"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--extra-codex-state-db", str(missing_db),
+        "--out", str(tmp_path / "usage.json"),
+    ])
+    assert rc == 0
+    stderr = capsys.readouterr().err
+    assert f"could not read Codex state database {missing_db}: file not found" in stderr
+
+
+def test_cli_help_lists_documented_export_flags(capsys):
+    import export_usage as eu
+    with pytest.raises(SystemExit) as exc:
+        eu.main(["--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    for flag in (
+        "--summary-json",
+        "--extra-claude-projects",
+        "--extra-codex-sessions",
+        "--extra-codex-state-db",
+    ):
+        assert flag in help_text
