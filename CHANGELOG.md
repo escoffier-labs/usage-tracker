@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- Added zero-runtime-dependency Python packaging with the `usage-tracker export` command.
+- Added `--summary-json --no-write` for bounded read-only station summaries.
+- Added an active Brigade station manifest with an explicit help probe.
+
+### Fixed
+- Removed README claims for transcript and SQLite source options that the exporter does not implement.
+
 ## [0.1.0] - 2026-06-27
 
 ### Added

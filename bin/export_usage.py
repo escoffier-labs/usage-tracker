@@ -384,6 +384,37 @@ def filter_since(records, cutoff_iso):
     return [r for r in records if (r.get("ts") or "") >= cutoff_iso]
 
 
+def summarize_records(records):
+    """Return the bounded machine summary used by the tokens station."""
+    source_counts = {"openclaw": 0, "claude_code": 0, "codex_cli": 0}
+    api_spend = 0.0
+    oauth_value = 0.0
+    for record in records:
+        model_api = record.get("modelApi")
+        if model_api == "claude-code":
+            source_counts["claude_code"] += 1
+        elif model_api == "codex-cli":
+            source_counts["codex_cli"] += 1
+        else:
+            source_counts["openclaw"] += 1
+
+        cost = record.get("costUsd")
+        if cost is None:
+            continue
+        if record.get("billing") == "oauth":
+            oauth_value += cost
+        else:
+            api_spend += cost
+
+    return {
+        "record_count": len(records),
+        "total_tokens": sum(record.get("totalTokens") or 0 for record in records),
+        "api_spend_usd": api_spend,
+        "oauth_value_usd": oauth_value,
+        "source_counts": source_counts,
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Export OpenClaw + Claude Code session usage to a flat usage.json"
@@ -438,6 +469,16 @@ def main(argv=None):
             "Example: --oauth-providers openai-codex,claude-cli,acpx,xai"
         ),
     )
+    parser.add_argument(
+        "--summary-json",
+        action="store_true",
+        help="Print a compact JSON summary to stdout",
+    )
+    parser.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not create or replace the output file",
+    )
     args = parser.parse_args(argv)
 
     oauth_providers = None
@@ -486,22 +527,46 @@ def main(argv=None):
     }
 
     out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    # Write atomically so a concurrent page fetch never sees a partial file
-    tmp_path = out_path.with_name(out_path.name + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2))
-    tmp_path.replace(out_path)
+    if not args.no_write:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        # Write atomically so a concurrent page fetch never sees a partial file
+        tmp_path = out_path.with_name(out_path.name + ".tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2))
+        tmp_path.replace(out_path)
+
+    if args.summary_json:
+        print(json.dumps(summarize_records(records), separators=(",", ":")))
 
     # Summary to stderr
     cost_known = sum(1 for r in records if r["costUsd"] is not None)
     cost_missing = len(records) - cost_known
-    print(
-        f"exported {len(records)} records to {out_path} "
-        f"({openclaw_count} openclaw, {claude_count} claude-code, {codex_count} codex-cli; "
-        f"{cost_known} with cost, {cost_missing} missing)",
-        file=sys.stderr,
-    )
+    if not args.summary_json:
+        destination = f"to {out_path}" if not args.no_write else "without writing"
+        print(
+            f"exported {len(records)} records {destination} "
+            f"({openclaw_count} openclaw, {claude_count} claude-code, {codex_count} codex-cli; "
+            f"{cost_known} with cost, {cost_missing} missing)",
+            file=sys.stderr,
+        )
     return 0
+
+
+def console_main(argv=None):
+    """Console entry point that namespaces exporter options under `export`."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(
+        prog="usage-tracker",
+        description="Export local AI session usage and spend data",
+    )
+    parser.add_argument("command", choices=("export",), help="command to run")
+    if not args:
+        parser.error("the following arguments are required: command")
+    if args[0] in {"-h", "--help"}:
+        parser.print_help()
+        return 0
+    if args[0] != "export":
+        parser.error(f"argument command: invalid choice: {args[0]!r} (choose from 'export')")
+    return main(args[1:])
 
 
 if __name__ == "__main__":

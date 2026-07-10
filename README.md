@@ -29,11 +29,11 @@
 ## Install
 
 ```bash
-git clone https://github.com/escoffier-labs/usage-tracker.git
-cd usage-tracker
-# export local session transcripts to data/usage.json, then open the static page
-python export.py    # see repo for exact entrypoint
+pipx install git+https://github.com/escoffier-labs/usage-tracker
+usage-tracker export --since 30d
 ```
+
+The console command writes `data/usage.json` relative to the installed module by default. Use `--out PATH` to choose a dashboard checkout or another local destination.
 
 ## What it does
 
@@ -52,16 +52,22 @@ git clone https://github.com/escoffier-labs/usage-tracker.git
 cd usage-tracker
 
 # Build data/usage.json from your OpenClaw + Claude Code sessions
-python3 bin/export_usage.py --since 30d
+usage-tracker export --since 30d --out data/usage.json
 
-# Print a compact machine summary for station health or daily briefs
-python3 bin/export_usage.py --since 30d --summary-json
+# Print a compact machine summary without changing data/usage.json
+usage-tracker export --since 30d --summary-json --no-write
 
 # Serve the page
 python3 -m http.server 5200
 ```
 
 Open http://localhost:5200.
+
+The source checkout entry point remains available:
+
+```bash
+python3 bin/export_usage.py --since 30d
+```
 
 For an always-fresh dataset, install the opt-in user-systemd timer (5 minute refresh):
 
@@ -81,8 +87,8 @@ Each call is classified as `oauth` (subscription burn, billed flat) or `api` (re
 - Calls served by a subscription backend are detected from the API id (`openai-chatgpt-responses`, `cli`, `google-gemini-cli`) regardless of provider.
 - Providers in the OAuth set (`openai-codex`, `claude-cli`, `acpx`, `google-gemini-cli` by default) are `oauth`; everything else is `api`.
 - Override per export with `--oauth-providers`. Example: if grok runs on a SuperGrok subscription via device-code OAuth, use `--oauth-providers openai-codex,claude-cli,acpx,google-gemini-cli,xai`.
-- Claude Code records are always `oauth` (Claude Code transcripts carry token counts but no cost; the exporter estimates the API-equivalent cost from a built-in pricing table). Disable the source with `--no-claude-code`, point elsewhere with `--claude-projects PATH`, or include more machines/backups with repeatable `--extra-claude-projects PATH`.
-- Codex CLI rollouts (`~/.codex/sessions` and `~/.codex/archived_sessions`) are always `oauth` (ChatGPT subscription); per-call tokens come from `token_count` events and cost is estimated from the same pricing table. The exporter also reads `~/.codex/state_5.sqlite` for total-only backfill when a Codex thread exists but its rollout records are missing. Disable with `--no-codex`, point elsewhere with `--codex-sessions PATH`, include more machines/backups with repeatable `--extra-codex-sessions PATH`, or add more SQLite backfills with repeatable `--extra-codex-state-db PATH`.
+- Claude Code records are always `oauth` (Claude Code transcripts carry token counts but no cost; the exporter estimates the API-equivalent cost from a built-in pricing table). Disable the source with `--no-claude-code` or point elsewhere with `--claude-projects PATH`.
+- Codex CLI rollouts under `~/.codex/sessions` are always `oauth` (ChatGPT subscription); per-call tokens come from `token_count` events and cost is estimated from the same pricing table. Disable the source with `--no-codex` or point elsewhere with `--codex-sessions PATH`.
 - Models missing from the pricing table export with `costUsd: null`; the page counts them as "calls missing cost data" instead of silently pricing them at zero.
 
 ## Drag-and-drop fallback
@@ -91,8 +97,8 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 
 ## Architecture
 
-- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/**/*.jsonl` (Codex CLI rollouts, including archived sessions), extracts per-call usage, writes a flat array to `data/usage.json`, and uses Codex `state_5.sqlite` only as a total-only missing-thread backfill. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
-- Codex profile/account counters may include server-side usage that is not retained in local rollout files or SQLite state. This tracker reports local evidence plus local backfill, not an authoritative account lifetime total.
+- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/sessions/**/*.jsonl` (Codex CLI rollouts), extracts per-call usage, and writes the payload to `data/usage.json`. OpenClaw's `*.trajectory.jsonl` files are not used because they only exist for a fraction of runs and undercount usage by an order of magnitude.
+- Codex profile or account counters may include server-side usage that is not retained in local rollout files. This tracker reports local transcript evidence, not an authoritative account lifetime total.
 - `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
 - No backend. localStorage caches the last load and your subscription settings.
 
@@ -101,15 +107,6 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 ```bash
 python3 -m pytest tests/   # exporter tests
 python3 -m http.server 5200  # page
-```
-
-Example multi-machine export:
-
-```bash
-python3 bin/export_usage.py \
-  --extra-claude-projects /tmp/gandalf-usage/claude/projects \
-  --extra-codex-sessions /tmp/gandalf-usage/codex \
-  --extra-codex-state-db /tmp/gandalf-usage/codex/state_5.sqlite
 ```
 
 ## License

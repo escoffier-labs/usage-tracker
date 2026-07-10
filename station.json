@@ -1,0 +1,38 @@
+{
+  "schema": "brigade.station.v1",
+  "name": "usage-tracker",
+  "station": "tokens",
+  "lifecycle": "active",
+  "summary": "local model usage export with API spend and OAuth value summaries",
+  "tools": [
+    {
+      "name": "usage-tracker",
+      "kind": "executable",
+      "command": "usage-tracker",
+      "summary": "stdlib-only local transcript usage exporter",
+      "install": [
+        "pipx",
+        "install",
+        "git+https://github.com/escoffier-labs/usage-tracker"
+      ],
+      "surfaces": [
+        {
+          "kind": "summary-json",
+          "command": [
+            "usage-tracker",
+            "export",
+            "--since",
+            "30d",
+            "--summary-json",
+            "--no-write"
+          ],
+          "read_only": true,
+          "timeout_seconds": 30,
+          "max_chars": 4000,
+          "probe": ["usage-tracker", "export", "--help"],
+          "probe_contains": ["--since", "--summary-json", "--no-write"]
+        }
+      ]
+    }
+  ]
+}

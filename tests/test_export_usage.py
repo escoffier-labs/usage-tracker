@@ -187,6 +187,38 @@ def test_main_combines_sources(tmp_path):
     assert not (out.parent / (out.name + ".tmp")).exists()
 
 
+def test_main_summary_json_no_write(tmp_path, capsys):
+    import export_usage as eu
+
+    agents, projects, codex = _make_tree(tmp_path)
+    out = tmp_path / "usage.json"
+    original = '{"sentinel": true}\n'
+    out.write_text(original)
+
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--out", str(out),
+        "--summary-json",
+        "--no-write",
+    ])
+
+    assert rc == 0
+    assert out.read_text() == original
+    assert not (out.parent / (out.name + ".tmp")).exists()
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["record_count"] == 6
+    assert summary["total_tokens"] == 32850
+    assert summary["api_spend_usd"] == pytest.approx(0.002)
+    assert summary["oauth_value_usd"] == pytest.approx(0.0671)
+    assert summary["source_counts"] == {
+        "openclaw": 2,
+        "claude_code": 2,
+        "codex_cli": 2,
+    }
+
+
 def test_main_no_claude_code_no_codex(tmp_path):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
