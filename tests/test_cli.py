@@ -18,14 +18,41 @@ def test_console_main_requires_export_subcommand():
     assert exc_info.value.code == 2
 
 
-def test_console_main_forwards_exporter_options(monkeypatch):
+def test_console_main_forwards_exporter_options_and_defaults_to_cwd(monkeypatch, tmp_path):
     import export_usage as eu
 
     forwarded = []
     monkeypatch.setattr(eu, "main", lambda argv: forwarded.append(argv) or 17)
+    monkeypatch.chdir(tmp_path)
 
     assert eu.console_main(["export", "--since", "7d", "--summary-json", "--no-write"]) == 17
-    assert forwarded == [["--since", "7d", "--summary-json", "--no-write"]]
+    assert forwarded == [[
+        "--since",
+        "7d",
+        "--summary-json",
+        "--no-write",
+        "--out",
+        str(tmp_path / "data" / "usage.json"),
+    ]]
+
+
+@pytest.mark.parametrize("out_args", [["--out", "custom.json"], ["--out=custom.json"]])
+def test_console_main_preserves_explicit_output(monkeypatch, out_args):
+    import export_usage as eu
+
+    forwarded = []
+    monkeypatch.setattr(eu, "main", lambda argv: forwarded.append(argv) or 0)
+
+    assert eu.console_main(["export", *out_args]) == 0
+    assert forwarded == [out_args]
+
+
+def test_direct_exporter_default_remains_repo_relative(monkeypatch, tmp_path):
+    import export_usage as eu
+
+    monkeypatch.chdir(tmp_path)
+
+    assert eu.default_output_path() == ROOT / "data" / "usage.json"
 
 
 def test_package_has_no_runtime_dependencies_and_installs_console_script():

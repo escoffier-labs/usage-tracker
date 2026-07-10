@@ -14,6 +14,7 @@ Sources:
 
 import argparse
 import json
+import math
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -54,6 +55,22 @@ MODEL_PRICING = {
 }
 # Backwards-compatible alias
 ANTHROPIC_PRICING = MODEL_PRICING
+
+
+def default_output_path():
+    """Return the repo-relative default used by the direct exporter script."""
+    return Path(__file__).resolve().parent.parent / "data" / "usage.json"
+
+
+def normalize_cost(value):
+    """Return a finite USD cost, or None when the source has no usable cost."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        cost = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return cost if math.isfinite(cost) else None
 
 
 def classify_billing(provider, api=None, oauth_providers=None):
@@ -131,7 +148,7 @@ def iter_openclaw_records(path, agent, oauth_providers=None):
                 continue
             cost = u.get("cost") or {}
             total_tokens = u.get("totalTokens") or 0
-            cost_total = cost.get("total")
+            cost_total = normalize_cost(cost.get("total"))
             if not total_tokens and not cost_total:
                 continue  # streaming placeholders and zero-usage noise
             api = m.get("api")
@@ -226,6 +243,7 @@ def walk_claude_projects(projects_dir, mtime_cutoff=None):
                     cost = estimate_anthropic_cost(
                         model, input_tokens, output_tokens, cache_read, u
                     )
+                cost = normalize_cost(cost)
                 cwd = d.get("cwd")
                 session_id = d.get("sessionId") or f.name[: -len(".jsonl")]
                 label = None
@@ -298,6 +316,7 @@ def iter_codex_records(path):
                         + output_tokens * rates[1]
                         + cached * rates[2]
                     ) / 1_000_000
+                cost = normalize_cost(cost)
                 sid = session_id or path.name[: -len(".jsonl")]
                 label = f"{Path(cwd).name}:{sid[:8]}" if cwd else None
                 yield {
@@ -398,7 +417,7 @@ def summarize_records(records):
         else:
             source_counts["openclaw"] += 1
 
-        cost = record.get("costUsd")
+        cost = normalize_cost(record.get("costUsd"))
         if cost is None:
             continue
         if record.get("billing") == "oauth":
@@ -452,7 +471,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--out",
-        default=str(Path(__file__).resolve().parent.parent / "data" / "usage.json"),
+        default=str(default_output_path()),
         help="Output path (default: ../data/usage.json)",
     )
     parser.add_argument(
@@ -531,11 +550,15 @@ def main(argv=None):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         # Write atomically so a concurrent page fetch never sees a partial file
         tmp_path = out_path.with_name(out_path.name + ".tmp")
-        tmp_path.write_text(json.dumps(payload, indent=2))
+        tmp_path.write_text(json.dumps(payload, indent=2, allow_nan=False))
         tmp_path.replace(out_path)
 
     if args.summary_json:
-        print(json.dumps(summarize_records(records), separators=(",", ":")))
+        print(
+            json.dumps(
+                summarize_records(records), separators=(",", ":"), allow_nan=False
+            )
+        )
 
     # Summary to stderr
     cost_known = sum(1 for r in records if r["costUsd"] is not None)
@@ -566,7 +589,10 @@ def console_main(argv=None):
         return 0
     if args[0] != "export":
         parser.error(f"argument command: invalid choice: {args[0]!r} (choose from 'export')")
-    return main(args[1:])
+    export_args = args[1:]
+    if not any(arg == "--out" or arg.startswith("--out=") for arg in export_args):
+        export_args.extend(["--out", str(Path.cwd() / "data" / "usage.json")])
+    return main(export_args)
 
 
 if __name__ == "__main__":

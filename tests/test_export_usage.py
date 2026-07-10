@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -217,6 +218,74 @@ def test_main_summary_json_no_write(tmp_path, capsys):
         "claude_code": 2,
         "codex_cli": 2,
     }
+
+
+@pytest.mark.parametrize("cost_literal", ["NaN", "Infinity", "-Infinity", "1e309"])
+def test_non_finite_cost_is_reported_as_missing_in_strict_summary_json(
+    tmp_path, capsys, cost_literal
+):
+    import export_usage as eu
+
+    sessions = tmp_path / "agents" / "main" / "sessions"
+    sessions.mkdir(parents=True)
+    transcript = sessions / "non-finite.jsonl"
+    transcript.write_text(
+        '{"type":"session","cwd":"/workspace"}\n'
+        '{"type":"message","timestamp":"2026-06-01T10:00:00Z",'
+        '"message":{"role":"assistant","model":"metered-model",'
+        '"provider":"metered-provider","api":"messages","usage":'
+        '{"input":1,"output":1,"totalTokens":2,"cost":{"total":'
+        + cost_literal
+        + "}}}}\n"
+    )
+
+    records = list(eu.iter_openclaw_records(transcript, agent="main"))
+    assert len(records) == 1
+    assert records[0]["costUsd"] is None
+
+    rc = eu.main(
+        [
+            "--agents-dir",
+            str(tmp_path / "agents"),
+            "--no-claude-code",
+            "--no-codex",
+            "--summary-json",
+            "--no-write",
+        ]
+    )
+
+    assert rc == 0
+    output = capsys.readouterr().out
+    summary = json.loads(
+        output,
+        parse_constant=lambda value: pytest.fail(f"non-finite JSON value: {value}"),
+    )
+    assert summary["record_count"] == 1
+    assert summary["api_spend_usd"] == 0.0
+    assert summary["oauth_value_usd"] == 0.0
+    assert all(math.isfinite(value) for value in (
+        summary["api_spend_usd"], summary["oauth_value_usd"]
+    ))
+
+
+def test_summary_json_serializer_rejects_unexpected_non_finite_value(
+    tmp_path, monkeypatch
+):
+    import export_usage as eu
+
+    monkeypatch.setattr(eu, "summarize_records", lambda records: {"cost": math.nan})
+
+    with pytest.raises(ValueError, match="Out of range float values"):
+        eu.main(
+            [
+                "--agents-dir",
+                str(tmp_path / "missing-agents"),
+                "--no-claude-code",
+                "--no-codex",
+                "--summary-json",
+                "--no-write",
+            ]
+        )
 
 
 def test_main_no_claude_code_no_codex(tmp_path):
