@@ -335,7 +335,7 @@ def walk_codex_sessions(sessions_dir, mtime_cutoff=None):
     return records
 
 
-def walk_codex_state_db(db_path, existing_session_ids, mtime_cutoff=None):
+def walk_codex_state_db(db_path, existing_session_ids, mtime_cutoff=None, warn=False):
     """Backfill totals for Codex threads without retained rollout usage.
 
     The state database only has a thread-level token total, so these records
@@ -344,7 +344,9 @@ def walk_codex_state_db(db_path, existing_session_ids, mtime_cutoff=None):
     records = []
     try:
         db = sqlite3.connect(f"file:{Path(db_path)}?mode=ro", uri=True)
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        if warn:
+            print(f"could not read Codex state database {db_path}: {exc}", file=sys.stderr)
         return records
     try:
         rows = db.execute(
@@ -376,11 +378,44 @@ def walk_codex_state_db(db_path, existing_session_ids, mtime_cutoff=None):
                 "totalTokens": tokens,
                 "costUsd": None,
             })
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        if warn:
+            print(f"could not read Codex state database {db_path}: {exc}", file=sys.stderr)
         return []
     finally:
         db.close()
     return records
+
+
+def unique_paths(paths):
+    """Return paths once, resolving aliases without requiring they exist."""
+    seen = set()
+    unique = []
+    for path in paths:
+        resolved = Path(path).expanduser().resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(resolved)
+    return unique
+
+
+def dedupe_records(records):
+    """Collapse the same source call found through overlapping or copied roots."""
+    seen = set()
+    unique = []
+    for record in records:
+        identity = (
+            record.get("_source"), record.get("sessionId"), record.get("ts"),
+            record.get("provider"), record.get("modelId"), record.get("input"),
+            record.get("output"), record.get("cacheRead"), record.get("cacheWrite"),
+            record.get("totalTokens"),
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(record)
+    return unique
 
 
 def parse_since(spec, now=None):
@@ -525,20 +560,20 @@ def main(argv=None):
     records = walk_agents_dir(
         args.agents_dir, oauth_providers=oauth_providers, mtime_cutoff=mtime_cutoff
     )
-    openclaw_count = len(records)
+    for record in records:
+        record["_source"] = "openclaw"
 
-    claude_count = 0
     if not args.no_claude_code:
-        for projects_dir in [args.claude_projects, *args.extra_claude_projects]:
-            if not Path(projects_dir).is_dir():
+        for projects_dir in unique_paths([args.claude_projects, *args.extra_claude_projects]):
+            if not projects_dir.is_dir():
                 continue
             claude_records = walk_claude_projects(
                 projects_dir, mtime_cutoff=mtime_cutoff
             )
-            claude_count += len(claude_records)
+            for record in claude_records:
+                record["_source"] = "claudeCode"
             records.extend(claude_records)
 
-    codex_count = 0
     if not args.no_codex:
         default_sessions = Path.home() / ".codex" / "sessions"
         codex_dirs = [args.codex_sessions, *args.extra_codex_sessions]
@@ -546,30 +581,48 @@ def main(argv=None):
         if Path(args.codex_sessions) == default_sessions:
             codex_dirs.append(str(Path.home() / ".codex" / "archived_sessions"))
             state_dbs.insert(0, str(Path.home() / ".codex" / "state_5.sqlite"))
-        for sessions_dir in codex_dirs:
-            if not Path(sessions_dir).is_dir():
+        for sessions_dir in unique_paths(codex_dirs):
+            if not sessions_dir.is_dir():
                 continue
             codex_records = walk_codex_sessions(
                 sessions_dir, mtime_cutoff=mtime_cutoff
             )
-            codex_count += len(codex_records)
+            for record in codex_records:
+                record["_source"] = "codexCli"
             records.extend(codex_records)
         existing_session_ids = {
             r["sessionId"] for r in records
             if r.get("agent") == "codex-cli" and r.get("sessionId")
         }
-        for state_db in state_dbs:
-            if not Path(state_db).is_file():
+        explicit_state_dbs = set(unique_paths(args.extra_codex_state_db))
+        for state_db in unique_paths(state_dbs):
+            if not state_db.is_file():
+                if state_db in explicit_state_dbs:
+                    print(
+                        f"could not read Codex state database {state_db}: file not found",
+                        file=sys.stderr,
+                    )
                 continue
             backfills = walk_codex_state_db(
-                state_db, existing_session_ids, mtime_cutoff=mtime_cutoff
+                state_db, existing_session_ids, mtime_cutoff=mtime_cutoff,
+                warn=state_db in explicit_state_dbs,
             )
-            codex_count += len(backfills)
+            for record in backfills:
+                record["_source"] = "codexCli"
             records.extend(backfills)
             existing_session_ids.update(r["sessionId"] for r in backfills)
 
     if cutoff:
         records = filter_since(records, cutoff)
+    records = dedupe_records(records)
+
+    source_counts = {
+        "openclaw": sum(r.get("_source") == "openclaw" for r in records),
+        "claudeCode": sum(r.get("_source") == "claudeCode" for r in records),
+        "codexCli": sum(r.get("_source") == "codexCli" for r in records),
+    }
+    for record in records:
+        record.pop("_source", None)
 
     # Sort newest-first
     records.sort(key=lambda r: r.get("ts") or "", reverse=True)
@@ -597,18 +650,15 @@ def main(argv=None):
     cost_missing = len(records) - cost_known
     print(
         f"exported {len(records)} records to {out_path} "
-        f"({openclaw_count} openclaw, {claude_count} claude-code, {codex_count} codex-cli; "
+        f"({source_counts['openclaw']} openclaw, "
+        f"{source_counts['claudeCode']} claude-code, {source_counts['codexCli']} codex-cli; "
         f"{cost_known} with cost, {cost_missing} missing)",
         file=sys.stderr,
     )
     if args.summary_json:
         print(json.dumps({
             "records": len(records),
-            "sources": {
-                "openclaw": openclaw_count,
-                "claudeCode": claude_count,
-                "codexCli": codex_count,
-            },
+            "sources": source_counts,
             "costKnown": cost_known,
             "costMissing": cost_missing,
             "totalTokens": sum(r.get("totalTokens") or 0 for r in records),

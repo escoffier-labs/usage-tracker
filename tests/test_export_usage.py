@@ -328,10 +328,18 @@ def test_main_includes_repeatable_extra_sources_and_state_backfill(tmp_path):
     agents, projects, codex = _make_tree(tmp_path)
     extra_projects = tmp_path / "extra-projects"
     (extra_projects / "machine-b").mkdir(parents=True)
-    (extra_projects / "machine-b" / "cc2.jsonl").write_text(CLAUDE_FIXTURE.read_text())
+    extra_claude = CLAUDE_FIXTURE.read_text().replace(
+        "aaaa1111-bbbb-cccc-dddd-eeee22223333",
+        "bbbb2222-cccc-dddd-eeee-ffff33334444",
+    )
+    (extra_projects / "machine-b" / "cc2.jsonl").write_text(extra_claude)
     extra_codex = tmp_path / "extra-codex"
     extra_codex.mkdir()
-    (extra_codex / "rollout-2.jsonl").write_text(CODEX_FIXTURE.read_text())
+    extra_rollout = CODEX_FIXTURE.read_text().replace(
+        "019e1111-2222-7333-8444-555566667777",
+        "029e2222-3333-7444-8555-666677778888",
+    )
+    (extra_codex / "rollout-2.jsonl").write_text(extra_rollout)
     state_db = tmp_path / "extra-state.sqlite"
     _make_codex_state_db(state_db, [
         ("db-only", "/missing.jsonl", 1700000000, 1700000100, "openai", "/repo/db", 777, "gpt-5.5"),
@@ -374,6 +382,75 @@ def test_main_summary_json_prints_machine_readable_counts(tmp_path, capsys):
     assert summary["totalTokens"] == sum(
         r["totalTokens"] for r in json.loads(out.read_text())["records"]
     )
+
+
+def test_main_deduplicates_repeated_extra_source_paths(tmp_path):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--extra-claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--extra-codex-sessions", str(codex),
+        "--out", str(out),
+    ])
+    assert rc == 0
+    assert len(json.loads(out.read_text())["records"]) == 6
+
+
+def test_main_summary_source_counts_follow_since_filter(tmp_path, capsys):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--since", "2026-06-02T00:00:00.000Z",
+        "--summary-json",
+        "--out", str(out),
+    ])
+    assert rc == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["records"] == 4
+    assert summary["sources"] == {"openclaw": 0, "claudeCode": 2, "codexCli": 2}
+    assert sum(summary["sources"].values()) == summary["records"]
+
+
+def test_main_warns_when_explicit_state_db_is_invalid(tmp_path, capsys):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    invalid_db = tmp_path / "invalid.sqlite"
+    invalid_db.write_text("not sqlite")
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--extra-codex-state-db", str(invalid_db),
+        "--out", str(tmp_path / "usage.json"),
+    ])
+    assert rc == 0
+    stderr = capsys.readouterr().err
+    assert str(invalid_db) in stderr
+    assert "could not read Codex state database" in stderr
+
+
+def test_main_warns_when_explicit_state_db_is_missing(tmp_path, capsys):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    missing_db = tmp_path / "missing.sqlite"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--extra-codex-state-db", str(missing_db),
+        "--out", str(tmp_path / "usage.json"),
+    ])
+    assert rc == 0
+    stderr = capsys.readouterr().err
+    assert f"could not read Codex state database {missing_db}: file not found" in stderr
 
 
 def test_cli_help_lists_documented_export_flags(capsys):
