@@ -33,7 +33,7 @@ pipx install git+https://github.com/escoffier-labs/usage-tracker
 usage-tracker export --since 30d
 ```
 
-The console command writes `data/usage.json` relative to the installed module by default. Use `--out PATH` to choose a dashboard checkout or another local destination.
+The console command writes `data/usage.json` relative to the current working directory by default. Use `--out PATH` to choose another local destination.
 
 ## What it does
 
