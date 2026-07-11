@@ -92,6 +92,10 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 
 ## Architecture
 
+![Usage Tracker evidence workflow](docs/assets/usage-evidence-workflow.svg)
+
+Generated from [`docs/assets/workflows/usage-evidence.json`](docs/assets/workflows/usage-evidence.json) with `plating workflow`.
+
 - `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/**/*.jsonl` (Codex CLI rollouts, including archived sessions), extracts per-call usage, writes a flat array to `data/usage.json`, and uses Codex `state_5.sqlite` only as a total-only missing-thread backfill. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
 - Codex profile/account counters may include server-side usage that is not retained in local rollout files or SQLite state. This tracker reports local evidence plus local backfill, not an authoritative account lifetime total.
 - `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
