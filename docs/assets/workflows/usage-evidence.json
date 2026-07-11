@@ -1,0 +1,92 @@
+{
+  "title": "From local transcripts to subscription ROI",
+  "eyebrow": "USAGE-TRACKER WORKFLOW",
+  "description": "The exporter collects local evidence, classifies billing, and feeds a static dashboard.",
+  "meta": "offline exporter · static HTML",
+  "columns": [
+    {
+      "title": "SOURCES",
+      "nodes": [
+        {
+          "id": "openclaw",
+          "label": "OpenClaw sessions",
+          "detail": "plain JSONL"
+        },
+        {
+          "id": "claude",
+          "label": "Claude Code",
+          "detail": "project transcripts"
+        },
+        {
+          "id": "codex",
+          "label": "Codex rollouts",
+          "detail": "sessions + SQLite backfill"
+        }
+      ]
+    },
+    {
+      "title": "EXPORT",
+      "nodes": [
+        {
+          "id": "walk",
+          "label": "walk transcripts",
+          "detail": "token events",
+          "kind": "accent"
+        },
+        {
+          "id": "classify",
+          "label": "classify billing",
+          "detail": "api · oauth",
+          "kind": "focus",
+          "badge": "local"
+        }
+      ]
+    },
+    {
+      "title": "DATA",
+      "nodes": [
+        {
+          "id": "json",
+          "label": "usage.json",
+          "detail": "flat records"
+        },
+        {
+          "id": "summary",
+          "label": "summary JSON",
+          "detail": "station health"
+        }
+      ]
+    },
+    {
+      "title": "VIEW",
+      "nodes": [
+        {
+          "id": "dashboard",
+          "label": "static dashboard",
+          "detail": "charts + tables",
+          "kind": "success"
+        },
+        {
+          "id": "drop",
+          "label": "drag-and-drop",
+          "detail": "fallback loader"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "openclaw", "to": "walk"},
+    {"from": "claude", "to": "walk"},
+    {"from": "codex", "to": "walk"},
+    {"from": "walk", "to": "classify"},
+    {"from": "classify", "to": "json"},
+    {"from": "classify", "to": "summary"},
+    {"from": "json", "to": "dashboard"},
+    {"from": "drop", "to": "dashboard"}
+  ],
+  "context": {
+    "title": "EVIDENCE CONTRACT",
+    "body": "No backend and no demo data; the page renders exported local records.",
+    "detail": "Trajectory files remain a fallback only because they undercount real usage."
+  }
+}
