@@ -2,7 +2,7 @@
 
 ## Project
 - **Name:** Usage Tracker
-- **Stack:** Single-file HTML + vanilla JS + inline SVG charts. No CDN dependencies (Google Fonts only). Companion exporter in Python (stdlib only).
+- **Stack:** Single-file HTML + vanilla JS + inline SVG charts. No CDN or runtime network dependencies. Companion exporter in Python (stdlib only).
 - **Run page:** `python3 -m http.server 5200`
 - **Refresh data:** `python3 bin/export_usage.py --since 30d`
 
