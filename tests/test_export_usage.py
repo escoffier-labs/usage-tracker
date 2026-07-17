@@ -578,6 +578,7 @@ def test_main_snapshot_json_writes_only_json_to_stdout(tmp_path, capsys):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--codex-sessions", str(codex),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--snapshot-json",
         "--machine-id", "testbox",
         "--out", str(out),
