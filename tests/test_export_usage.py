@@ -172,6 +172,7 @@ def test_main_combines_sources(tmp_path):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(codex),
         "--out", str(out),
     ])
@@ -188,6 +189,43 @@ def test_main_combines_sources(tmp_path):
     assert not (out.parent / (out.name + ".tmp")).exists()
 
 
+def test_claudex_proxy_lanes_map_to_real_providers(tmp_path):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    claudex = tmp_path / "claudex"
+    (claudex / "-tmp-proxy").mkdir(parents=True)
+    lines = []
+    for i, model in enumerate(["muse-spark-1.1", "kimi-k3", "glm-5.2"]):
+        lines.append(json.dumps({
+            "type": "assistant",
+            "timestamp": f"2026-06-05T10:0{i}:00.000Z",
+            "sessionId": f"proxy-{i}",
+            "cwd": "/tmp/proxy",
+            "message": {
+                "id": f"px_{i}", "role": "assistant", "model": model,
+                "usage": {"input_tokens": 1000, "output_tokens": 500,
+                          "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+            },
+        }))
+    (claudex / "-tmp-proxy" / "p1.jsonl").write_text("\n".join(lines))
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--claudex-projects", str(claudex),
+        "--codex-sessions", str(codex),
+        "--out", str(out),
+    ])
+    assert rc == 0
+    records = json.loads(out.read_text())["records"]
+    by_model = {r["modelId"]: r for r in records if r["agent"] == "claude-code"}
+    assert by_model["muse-spark-1.1"]["provider"] == "meta"
+    assert by_model["kimi-k3"]["provider"] == "kimi"
+    assert by_model["glm-5.2"]["provider"] == "zai"
+    assert by_model["muse-spark-1.1"]["costUsd"] is not None
+    assert by_model["muse-spark-1.1"]["costUsd"] > 0
+
+
 def test_main_no_claude_code_no_codex(tmp_path):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
@@ -195,6 +233,7 @@ def test_main_no_claude_code_no_codex(tmp_path):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(codex),
         "--no-claude-code",
         "--no-codex",
@@ -212,6 +251,7 @@ def test_main_missing_source_dirs_is_fine(tmp_path):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(tmp_path / "does-not-exist"),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(tmp_path / "also-missing"),
         "--out", str(out),
     ])
@@ -228,6 +268,7 @@ def test_main_since_filters(tmp_path):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(codex),
         "--since", "2026-06-02T00:00:00.000Z",
         "--out", str(out),
@@ -244,6 +285,7 @@ def test_main_oauth_providers_flag(tmp_path):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--no-claude-code",
         "--no-codex",
         "--oauth-providers", "xai",
@@ -348,6 +390,7 @@ def test_main_includes_repeatable_extra_sources_and_state_backfill(tmp_path):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--extra-claude-projects", str(extra_projects),
         "--codex-sessions", str(codex),
         "--extra-codex-sessions", str(extra_codex),
@@ -368,6 +411,7 @@ def test_main_summary_json_prints_machine_readable_counts(tmp_path, capsys):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(codex),
         "--summary-json",
         "--out", str(out),
@@ -391,6 +435,7 @@ def test_main_deduplicates_repeated_extra_source_paths(tmp_path):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--extra-claude-projects", str(projects),
         "--codex-sessions", str(codex),
         "--extra-codex-sessions", str(codex),
@@ -407,6 +452,7 @@ def test_main_summary_source_counts_follow_since_filter(tmp_path, capsys):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(codex),
         "--since", "2026-06-02T00:00:00.000Z",
         "--summary-json",
@@ -427,6 +473,7 @@ def test_main_warns_when_explicit_state_db_is_invalid(tmp_path, capsys):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(codex),
         "--extra-codex-state-db", str(invalid_db),
         "--out", str(tmp_path / "usage.json"),
@@ -444,6 +491,7 @@ def test_main_warns_when_explicit_state_db_is_missing(tmp_path, capsys):
     rc = eu.main([
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
         "--codex-sessions", str(codex),
         "--extra-codex-state-db", str(missing_db),
         "--out", str(tmp_path / "usage.json"),
