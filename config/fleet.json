@@ -15,7 +15,8 @@
     {
       "machineId": "shadowfax",
       "mode": "ssh",
-      "alias": "shadowfax"
+      "alias": "shadowfax",
+      "python": "python3"
     }
   ]
 }

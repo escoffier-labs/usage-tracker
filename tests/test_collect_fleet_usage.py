@@ -40,6 +40,19 @@ def test_build_command_uses_local_python_or_remote_ssh(tmp_path):
     ]
     assert remote_input == exporter.read_bytes()
 
+    shadowfax_cmd, _ = cf.build_command(
+        {
+            "machineId": "shadowfax",
+            "mode": "ssh",
+            "alias": "shadowfax",
+            "python": "python3",
+        },
+        exporter,
+        "31d",
+        10,
+    )
+    assert shadowfax_cmd[6] == "python3"
+
 
 def test_collect_fleet_retains_previous_snapshot_when_remote_fails(tmp_path):
     import collect_fleet_usage as cf

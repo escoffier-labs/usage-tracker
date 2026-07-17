@@ -43,7 +43,7 @@ Execute task-by-task and tick each checkbox. Every behavior change starts with t
 
 **Files:** `systemd/usage-tracker-fleet.service`, `systemd/usage-tracker-fleet.timer`, `README.md`
 
-- [ ] Add a service using `%h/repos/usage-tracker/bin/collect_fleet_usage.py --config %h/repos/usage-tracker/config/fleet.json --out %h/repos/usage-tracker/data/fleet-usage.json` and a timer with `OnBootSec=2m`, `OnUnitActiveSec=5m`, and `Persistent=true`.
-- [ ] Document a manual dry run, `systemctl --user link`, `enable --now`, snapshot locations, stale behavior, and the fact that raw transcripts remain remote.
-- [ ] Run `python3 -m pytest -q`; expect the full suite to pass.
-- [ ] Commit with `git add systemd README.md && git commit -m "docs: add fleet collector timer setup"`.
+- [x] Add a service using `%h/repos/usage-tracker/bin/collect_fleet_usage.py --config %h/repos/usage-tracker/config/fleet.json --out %h/repos/usage-tracker/data/fleet-usage.json` and a timer with `OnBootSec=2m`, `OnUnitActiveSec=5m`, and `Persistent=true`.
+- [x] Document a manual dry run, `systemctl --user link`, `enable --now`, snapshot locations, stale behavior, and the fact that raw transcripts remain remote.
+- [x] Run `python3 -m pytest -q`; expect the full suite to pass.
+- [x] Commit with `git add systemd README.md && git commit -m "docs: add fleet collector timer setup"`.

@@ -104,7 +104,7 @@ def iter_openclaw_records(path, agent, oauth_providers=None):
     """Yield flat usage records from one OpenClaw session transcript."""
     session_id = path.name[: -len(".jsonl")]
     workspace = None
-    with open(path) as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for i, line in enumerate(fh):
             line = line.strip()
             if not line:
@@ -189,7 +189,7 @@ def walk_claude_projects(projects_dir, mtime_cutoff=None):
         if mtime_cutoff is not None and f.stat().st_mtime < mtime_cutoff:
             continue
         try:
-            fh = open(f)
+            fh = open(f, encoding="utf-8", errors="replace")
         except OSError:
             continue
         with fh:
@@ -264,7 +264,7 @@ def iter_codex_records(path):
     session_id = None
     cwd = None
     model = None
-    with open(path) as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             if ('"token_count"' not in line and '"session_meta"' not in line
                     and '"turn_context"' not in line):

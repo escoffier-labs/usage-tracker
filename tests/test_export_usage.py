@@ -541,3 +541,16 @@ def test_main_snapshot_json_writes_only_json_to_stdout(tmp_path, capsys):
     assert snapshot["records"] == 6
     assert snapshot["hours"]
     assert not out.exists()
+
+
+def test_walk_claude_projects_tolerates_non_utf8_bytes(tmp_path):
+    import export_usage as eu
+
+    project = tmp_path / "projects" / "machine"
+    project.mkdir(parents=True)
+    payload = CLAUDE_FIXTURE.read_bytes() + b"\n\x8f\n"
+    (project / "session.jsonl").write_bytes(payload)
+
+    records = eu.walk_claude_projects(tmp_path / "projects")
+
+    assert len(records) == 2

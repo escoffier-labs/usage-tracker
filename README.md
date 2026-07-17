@@ -101,6 +101,33 @@ Generated from [`docs/assets/workflows/usage-evidence.json`](docs/assets/workflo
 - `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
 - No backend. localStorage caches the last load and your subscription settings.
 
+## Fleet snapshots for Ops Deck
+
+`bin/collect_fleet_usage.py` produces the compact source used by Ops Deck. Rocinante runs the exporter locally and streams the same standard-library Python file over SSH stdin to the configured `gandalf` and `shadowfax` aliases. Remote transcripts and credentials stay on their machines, and no remote service or script is installed.
+
+Run one collection manually:
+
+```bash
+python3 bin/collect_fleet_usage.py \
+  --config config/fleet.json \
+  --out data/fleet-usage.json
+```
+
+The fleet manifest is written to `data/fleet-usage.json`. Successful per-machine snapshots are retained under `data/fleet-machines/`. If a host is unavailable, the manifest keeps its last successful snapshot with `status: "stale"`; a host with no prior snapshot is reported as `status: "error"`.
+
+Install the five-minute user timer from the canonical `~/repos/usage-tracker` checkout:
+
+```bash
+systemctl --user link "$PWD/systemd/usage-tracker-fleet.service"
+systemctl --user link "$PWD/systemd/usage-tracker-fleet.timer"
+systemctl --user daemon-reload
+systemctl --user enable --now usage-tracker-fleet.timer
+systemctl --user start usage-tracker-fleet.service
+systemctl --user status usage-tracker-fleet.timer
+```
+
+The default snapshot range is 31 days. Ops Deck converts the UTC hourly buckets into Today, Yesterday, and trailing 30 calendar days in its configured timezone.
+
 ## Development
 
 ```bash

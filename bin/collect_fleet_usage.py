@@ -25,12 +25,13 @@ def build_command(machine, exporter_path, since, connect_timeout):
     if machine.get("mode") == "local":
         return [sys.executable, str(exporter_path), *export_args], None
     alias = str(machine.get("alias") or machine_id)
+    remote_python = str(machine.get("python") or "python")
     return [
         "ssh",
         "-o", "BatchMode=yes",
         "-o", f"ConnectTimeout={int(connect_timeout)}",
         alias,
-        "python", "-",
+        remote_python, "-",
         *export_args,
     ], Path(exporter_path).read_bytes()
 
