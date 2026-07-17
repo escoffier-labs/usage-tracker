@@ -19,12 +19,12 @@ Execute task-by-task and tick each checkbox. Every behavior change starts with t
 
 **Files:** `bin/export_usage.py`, `tests/test_export_usage.py`
 
-- [ ] Add `test_build_machine_snapshot_groups_utc_hours_and_unknown_tokens`. It passes two records in the same UTC hour and asserts `schemaVersion == 1`, the requested `machineId`, one hour, one provider/model aggregate, summed token fields, distinct sessions, and `unknownTokens == totalTokens - known token fields`.
-- [ ] Add `test_main_snapshot_json_writes_only_json_to_stdout`. It runs `main()` with fixture roots, `--snapshot-json`, and `--machine-id testbox`, then parses stdout and asserts no output file was created.
-- [ ] Run `python3 -m pytest -q tests/test_export_usage.py -k 'machine_snapshot or snapshot_json'`; expect failures because the builder and flags do not exist.
-- [ ] Add `utc_hour(ts)`, `build_machine_snapshot(records, machine_id, generated_at=None)`, `--snapshot-json`, and `--machine-id`. Sort hours, providers, and models for deterministic output. Return before the normal file-writing path when snapshot JSON is selected.
-- [ ] Run the focused command again; expect all selected tests to pass.
-- [ ] Commit with `git add bin/export_usage.py tests/test_export_usage.py && git commit -m "feat: add compact machine usage snapshots"`.
+- [x] Add `test_build_machine_snapshot_groups_utc_hours_and_unknown_tokens`. It passes two records in the same UTC hour and asserts `schemaVersion == 1`, the requested `machineId`, one hour, one provider/model aggregate, summed token fields, distinct sessions, and `unknownTokens == totalTokens - known token fields`.
+- [x] Add `test_main_snapshot_json_writes_only_json_to_stdout`. It runs `main()` with fixture roots, `--snapshot-json`, and `--machine-id testbox`, then parses stdout and asserts no output file was created.
+- [x] Run `python3 -m pytest -q tests/test_export_usage.py -k 'machine_snapshot or snapshot_json'`; expect failures because the builder and flags do not exist.
+- [x] Add `utc_hour(ts)`, `build_machine_snapshot(records, machine_id, generated_at=None)`, `--snapshot-json`, and `--machine-id`. Sort hours, providers, and models for deterministic output. Return before the normal file-writing path when snapshot JSON is selected.
+- [x] Run the focused command again; expect all selected tests to pass.
+- [x] Commit with `git add bin/export_usage.py tests/test_export_usage.py && git commit -m "feat: add compact machine usage snapshots"`.
 
 ### Task 2: Add the central pull collector
 
