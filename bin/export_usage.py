@@ -56,6 +56,39 @@ MODEL_PRICING = {
 # Backwards-compatible alias
 ANTHROPIC_PRICING = MODEL_PRICING
 
+# Proxy-lane models are logged through the Claude CLI (CLAUDE_CONFIG_DIR=
+# ~/.claude-claudex, CLIProxyAPI on :8317) so their transcripts look like Claude
+# Code but belong to other providers. Map by longest model-id prefix.
+MODEL_PROVIDER_OVERRIDE = {
+    "muse-spark": "meta",
+    "kimi": "kimi",
+    "glm": "zai",
+    "gpt-5.6-luna": "openai",
+    "gpt-5.6-sol": "openai",
+    "grok": "xai",
+}
+
+# API-equivalent pricing for the proxy lanes (blended July-2026 list prices).
+MODEL_PRICING.update({
+    "muse-spark": (1.0, 3.0, 0.10, 0.0, 0.0),
+    "kimi": (0.55, 2.20, 0.11, 0.0, 0.0),
+    "glm": (0.60, 2.20, 0.11, 0.0, 0.0),
+    "gpt-5.6": (1.25, 10.0, 0.13, 0.0, 0.0),
+    "grok": (2.0, 6.0, 0.50, 0.0, 0.0),
+})
+
+
+def provider_for_model(model, default):
+    """Real provider for a proxy-lane model id, else the transcript default."""
+    if model:
+        best = None
+        for prefix, prov in MODEL_PROVIDER_OVERRIDE.items():
+            if model.startswith(prefix) and (best is None or len(prefix) > len(best[0])):
+                best = (prefix, prov)
+        if best:
+            return best[1]
+    return default
+
 
 def classify_billing(provider, api=None, oauth_providers=None):
     if api in OAUTH_APIS:
@@ -232,13 +265,14 @@ def walk_claude_projects(projects_dir, mtime_cutoff=None):
                 label = None
                 if cwd:
                     label = f"{Path(cwd).name}:{session_id[:8]}"
+                provider = provider_for_model(model, "anthropic")
                 records.append({
                     "ts": d.get("timestamp"),
                     "agent": "claude-code",
                     "sessionId": session_id,
                     "sessionKey": label,
                     "runId": None,
-                    "provider": "anthropic",
+                    "provider": provider,
                     "modelId": model,
                     "modelApi": "claude-code",
                     "billing": "oauth",
@@ -498,6 +532,15 @@ def main(argv=None):
         help="Additional Claude Code projects directory (repeatable)",
     )
     parser.add_argument(
+        "--claudex-projects",
+        default=str(Path.home() / ".claude-claudex" / "projects"),
+        help=(
+            "Proxy-lane Claude Code projects directory (default: "
+            "~/.claude-claudex/projects; hosts muse/meta, kimi, glm, luna traffic "
+            "via CLIProxy; skipped silently when absent)"
+        ),
+    )
+    parser.add_argument(
         "--codex-sessions",
         default=str(Path.home() / ".codex" / "sessions"),
         help=(
@@ -564,7 +607,7 @@ def main(argv=None):
         record["_source"] = "openclaw"
 
     if not args.no_claude_code:
-        for projects_dir in unique_paths([args.claude_projects, *args.extra_claude_projects]):
+        for projects_dir in unique_paths([args.claude_projects, args.claudex_projects, *args.extra_claude_projects]):
             if not projects_dir.is_dir():
                 continue
             claude_records = walk_claude_projects(
