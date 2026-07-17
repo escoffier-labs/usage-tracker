@@ -514,3 +514,92 @@ def test_cli_help_lists_documented_export_flags(capsys):
         "--extra-codex-state-db",
     ):
         assert flag in help_text
+
+
+def test_build_machine_snapshot_groups_utc_hours_and_unknown_tokens():
+    import export_usage as eu
+
+    records = [
+        {
+            "ts": "2026-07-17T07:15:00Z",
+            "sessionId": "session-a",
+            "provider": "openai",
+            "modelId": "gpt-5.6-sol",
+            "input": 100,
+            "output": 20,
+            "cacheRead": 20,
+            "cacheWrite": 10,
+            "totalTokens": 150,
+        },
+        {
+            "ts": "2026-07-17T03:45:00-04:00",
+            "sessionId": "session-b",
+            "provider": "openai",
+            "modelId": "gpt-5.6-sol",
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 500,
+        },
+    ]
+
+    snapshot = eu.build_machine_snapshot(
+        records,
+        "shadowfax",
+        generated_at="2026-07-17T08:00:00Z",
+    )
+
+    assert snapshot["schemaVersion"] == 1
+    assert snapshot["machineId"] == "shadowfax"
+    assert snapshot["generatedAt"] == "2026-07-17T08:00:00Z"
+    assert snapshot["records"] == 2
+    assert snapshot["sessions"] == 2
+    assert len(snapshot["hours"]) == 1
+    assert snapshot["hours"][0]["hour"] == "2026-07-17T07:00:00Z"
+    model = snapshot["hours"][0]["providers"][0]["models"][0]
+    assert model == {
+        "modelId": "gpt-5.6-sol",
+        "inputTokens": 100,
+        "outputTokens": 20,
+        "cacheReadTokens": 20,
+        "cacheWriteTokens": 10,
+        "unknownTokens": 500,
+        "totalTokens": 650,
+    }
+
+
+def test_main_snapshot_json_writes_only_json_to_stdout(tmp_path, capsys):
+    import export_usage as eu
+
+    agents, projects, codex = _make_tree(tmp_path)
+    out = tmp_path / "should-not-exist.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--codex-sessions", str(codex),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--snapshot-json",
+        "--machine-id", "testbox",
+        "--out", str(out),
+    ])
+
+    assert rc == 0
+    snapshot = json.loads(capsys.readouterr().out)
+    assert snapshot["machineId"] == "testbox"
+    assert snapshot["records"] == 6
+    assert snapshot["hours"]
+    assert not out.exists()
+
+
+def test_walk_claude_projects_tolerates_non_utf8_bytes(tmp_path):
+    import export_usage as eu
+
+    project = tmp_path / "projects" / "machine"
+    project.mkdir(parents=True)
+    payload = CLAUDE_FIXTURE.read_bytes() + b"\n\x8f\n"
+    (project / "session.jsonl").write_bytes(payload)
+
+    records = eu.walk_claude_projects(tmp_path / "projects")
+
+    assert len(records) == 2

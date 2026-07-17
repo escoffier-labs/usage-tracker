@@ -1,0 +1,22 @@
+{
+  "since": "31d",
+  "connectTimeoutSeconds": 10,
+  "processTimeoutSeconds": 120,
+  "machines": [
+    {
+      "machineId": "rocinante",
+      "mode": "local"
+    },
+    {
+      "machineId": "gandalf",
+      "mode": "ssh",
+      "alias": "gandalf"
+    },
+    {
+      "machineId": "shadowfax",
+      "mode": "ssh",
+      "alias": "shadowfax",
+      "python": "python3"
+    }
+  ]
+}

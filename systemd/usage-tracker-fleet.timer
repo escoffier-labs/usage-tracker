@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh fleet AI usage every five minutes
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+Persistent=true
+Unit=usage-tracker-fleet.service
+
+[Install]
+WantedBy=timers.target

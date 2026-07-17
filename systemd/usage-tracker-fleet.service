@@ -1,0 +1,8 @@
+[Unit]
+Description=Collect compact AI usage snapshots from the home fleet
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/repos/usage-tracker/bin/collect_fleet_usage.py --config %h/repos/usage-tracker/config/fleet.json --out %h/repos/usage-tracker/data/fleet-usage.json

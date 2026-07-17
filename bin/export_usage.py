@@ -14,6 +14,7 @@ Sources:
 
 import argparse
 import json
+import platform
 import re
 import sqlite3
 import sys
@@ -136,7 +137,7 @@ def iter_openclaw_records(path, agent, oauth_providers=None):
     """Yield flat usage records from one OpenClaw session transcript."""
     session_id = path.name[: -len(".jsonl")]
     workspace = None
-    with open(path) as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for i, line in enumerate(fh):
             line = line.strip()
             if not line:
@@ -221,7 +222,7 @@ def walk_claude_projects(projects_dir, mtime_cutoff=None):
         if mtime_cutoff is not None and f.stat().st_mtime < mtime_cutoff:
             continue
         try:
-            fh = open(f)
+            fh = open(f, encoding="utf-8", errors="replace")
         except OSError:
             continue
         with fh:
@@ -297,7 +298,7 @@ def iter_codex_records(path):
     session_id = None
     cwd = None
     model = None
-    with open(path) as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             if ('"token_count"' not in line and '"session_meta"' not in line
                     and '"turn_context"' not in line):
@@ -502,6 +503,77 @@ def filter_since(records, cutoff_iso):
     return [r for r in records if (r.get("ts") or "") >= cutoff_iso]
 
 
+def utc_hour(timestamp):
+    """Return the containing UTC hour as an RFC 3339 string."""
+    try:
+        parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed = parsed.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    return parsed.isoformat().replace("+00:00", "Z")
+
+
+def build_machine_snapshot(records, machine_id, generated_at=None):
+    """Aggregate flat records into compact UTC-hour provider/model buckets."""
+    buckets = {}
+    valid_records = 0
+    sessions = set()
+    for record in records:
+        hour = utc_hour(record.get("ts"))
+        if hour is None:
+            continue
+        valid_records += 1
+        if record.get("sessionId"):
+            sessions.add(str(record["sessionId"]))
+        provider = str(record.get("provider") or "unknown")
+        model = str(record.get("modelId") or "unknown")
+        key = (hour, provider, model)
+        row = buckets.setdefault(key, {
+            "modelId": model,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "unknownTokens": 0,
+            "totalTokens": 0,
+        })
+        input_tokens = max(int(record.get("input") or 0), 0)
+        output_tokens = max(int(record.get("output") or 0), 0)
+        cache_read = max(int(record.get("cacheRead") or 0), 0)
+        cache_write = max(int(record.get("cacheWrite") or 0), 0)
+        total = max(int(record.get("totalTokens") or 0), 0)
+        known = input_tokens + output_tokens + cache_read + cache_write
+        row["inputTokens"] += input_tokens
+        row["outputTokens"] += output_tokens
+        row["cacheReadTokens"] += cache_read
+        row["cacheWriteTokens"] += cache_write
+        row["unknownTokens"] += max(total - known, 0)
+        row["totalTokens"] += total
+
+    hours = []
+    for hour in sorted({key[0] for key in buckets}):
+        providers = []
+        for provider in sorted({key[1] for key in buckets if key[0] == hour}):
+            models = [
+                buckets[key]
+                for key in sorted(buckets)
+                if key[0] == hour and key[1] == provider
+            ]
+            providers.append({"providerId": provider, "models": models})
+        hours.append({"hour": hour, "providers": providers})
+
+    return {
+        "schemaVersion": 1,
+        "machineId": str(machine_id),
+        "generatedAt": generated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "records": valid_records,
+        "sessions": len(sessions),
+        "hours": hours,
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Export OpenClaw + Claude Code session usage to a flat usage.json"
@@ -591,6 +663,16 @@ def main(argv=None):
         action="store_true",
         help="Print a compact machine-readable export summary to stdout",
     )
+    parser.add_argument(
+        "--snapshot-json",
+        action="store_true",
+        help="Print a compact hourly machine snapshot to stdout without writing --out",
+    )
+    parser.add_argument(
+        "--machine-id",
+        default=platform.node().strip().lower() or "unknown",
+        help="Stable machine id used by --snapshot-json",
+    )
     args = parser.parse_args(argv)
 
     oauth_providers = None
@@ -669,6 +751,10 @@ def main(argv=None):
 
     # Sort newest-first
     records.sort(key=lambda r: r.get("ts") or "", reverse=True)
+
+    if args.snapshot_json:
+        print(json.dumps(build_machine_snapshot(records, args.machine_id), separators=(",", ":")))
+        return 0
 
     payload = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
