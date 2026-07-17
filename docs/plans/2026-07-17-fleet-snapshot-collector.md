@@ -30,14 +30,14 @@ Execute task-by-task and tick each checkbox. Every behavior change starts with t
 
 **Files:** `bin/collect_fleet_usage.py`, `tests/test_collect_fleet_usage.py`, `config/fleet.json`
 
-- [ ] Add tests for `build_command`: local uses the current interpreter and exporter path; remote uses `ssh -o BatchMode=yes -o ConnectTimeout=<n> <alias> python - ...` and supplies exporter source on stdin.
-- [ ] Add a stale-retention test. Seed a previous `shadowfax.json`, make the runner fail, and assert the resulting machine remains present with `status: stale`, its previous hours, and a sanitized error.
-- [ ] Add an atomic fleet write test that configures one local machine, captures the temporary path replacement, and asserts schema version 1 with deterministic machine ordering.
-- [ ] Run `python3 -m pytest -q tests/test_collect_fleet_usage.py`; expect import failure because the collector does not exist.
-- [ ] Implement the standard-library collector with `load_config`, `collect_machine`, `write_json_atomic`, and `collect_fleet`. Use `subprocess.run` with byte input, captured output, `check=False`, and a bounded timeout. Never include stderr secrets in JSON, only the last sanitized line capped at 240 characters.
-- [ ] Add `config/fleet.json` with local `rocinante` and SSH aliases `gandalf` and `shadowfax`, a 31-day range, 10-second connect timeout, and 120-second process timeout.
-- [ ] Run the focused test command; expect all tests to pass.
-- [ ] Commit with `git add bin/collect_fleet_usage.py tests/test_collect_fleet_usage.py config/fleet.json && git commit -m "feat: collect fleet usage over ssh"`.
+- [x] Add tests for `build_command`: local uses the current interpreter and exporter path; remote uses `ssh -o BatchMode=yes -o ConnectTimeout=<n> <alias> python - ...` and supplies exporter source on stdin.
+- [x] Add a stale-retention test. Seed a previous `shadowfax.json`, make the runner fail, and assert the resulting machine remains present with `status: stale`, its previous hours, and a sanitized error.
+- [x] Add an atomic fleet write test that configures one local machine, captures the temporary path replacement, and asserts schema version 1 with deterministic machine ordering.
+- [x] Run `python3 -m pytest -q tests/test_collect_fleet_usage.py`; expect import failure because the collector does not exist.
+- [x] Implement the standard-library collector with `load_config`, `collect_machine`, `write_json_atomic`, and `collect_fleet`. Use `subprocess.run` with byte input, captured output, `check=False`, and a bounded timeout. Never include stderr secrets in JSON, only the last sanitized line capped at 240 characters.
+- [x] Add `config/fleet.json` with local `rocinante` and SSH aliases `gandalf` and `shadowfax`, a 31-day range, 10-second connect timeout, and 120-second process timeout.
+- [x] Run the focused test command; expect all tests to pass.
+- [x] Commit with `git add bin/collect_fleet_usage.py tests/test_collect_fleet_usage.py config/fleet.json && git commit -m "feat: collect fleet usage over ssh"`.
 
 ### Task 3: Package the timer and operator docs
 
