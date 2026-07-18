@@ -173,6 +173,7 @@ def test_main_combines_sources(tmp_path):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(codex),
         "--out", str(out),
     ])
@@ -226,6 +227,36 @@ def test_claudex_proxy_lanes_map_to_real_providers(tmp_path):
     assert by_model["muse-spark-1.1"]["costUsd"] > 0
 
 
+def test_cursor_transcripts_estimated_from_text(tmp_path):
+    import export_usage as eu
+    agents, projects, codex = _make_tree(tmp_path)
+    cur = tmp_path / "cursor" / "proj-a" / "agent-transcripts" / "sess-1"
+    cur.mkdir(parents=True)
+    (cur / "sess-1.jsonl").write_text("\n".join([
+        json.dumps({"role": "user", "message": {"content": "x" * 400}}),
+        json.dumps({"role": "assistant", "message": {"content": "y" * 800}}),
+    ]))
+    out = tmp_path / "usage.json"
+    rc = eu.main([
+        "--agents-dir", str(agents),
+        "--claude-projects", str(projects),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "cursor"),
+        "--codex-sessions", str(codex),
+        "--out", str(out),
+    ])
+    assert rc == 0
+    records = json.loads(out.read_text())["records"]
+    cursor = [r for r in records if r["provider"] == "cursor"]
+    assert len(cursor) == 1
+    r = cursor[0]
+    assert r["input"] == 100  # 400 chars / 4
+    assert r["output"] == 200  # 800 chars / 4
+    assert r["totalTokens"] == 300
+    assert r["estimated"] is True
+    assert r["costUsd"] is not None and r["costUsd"] > 0
+
+
 def test_main_no_claude_code_no_codex(tmp_path):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
@@ -234,6 +265,7 @@ def test_main_no_claude_code_no_codex(tmp_path):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(codex),
         "--no-claude-code",
         "--no-codex",
@@ -252,6 +284,7 @@ def test_main_missing_source_dirs_is_fine(tmp_path):
         "--agents-dir", str(agents),
         "--claude-projects", str(tmp_path / "does-not-exist"),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(tmp_path / "also-missing"),
         "--out", str(out),
     ])
@@ -269,6 +302,7 @@ def test_main_since_filters(tmp_path):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(codex),
         "--since", "2026-06-02T00:00:00.000Z",
         "--out", str(out),
@@ -286,6 +320,7 @@ def test_main_oauth_providers_flag(tmp_path):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--no-claude-code",
         "--no-codex",
         "--oauth-providers", "xai",
@@ -391,6 +426,7 @@ def test_main_includes_repeatable_extra_sources_and_state_backfill(tmp_path):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--extra-claude-projects", str(extra_projects),
         "--codex-sessions", str(codex),
         "--extra-codex-sessions", str(extra_codex),
@@ -412,6 +448,7 @@ def test_main_summary_json_prints_machine_readable_counts(tmp_path, capsys):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(codex),
         "--summary-json",
         "--out", str(out),
@@ -436,6 +473,7 @@ def test_main_deduplicates_repeated_extra_source_paths(tmp_path):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--extra-claude-projects", str(projects),
         "--codex-sessions", str(codex),
         "--extra-codex-sessions", str(codex),
@@ -453,6 +491,7 @@ def test_main_summary_source_counts_follow_since_filter(tmp_path, capsys):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(codex),
         "--since", "2026-06-02T00:00:00.000Z",
         "--summary-json",
@@ -474,6 +513,7 @@ def test_main_warns_when_explicit_state_db_is_invalid(tmp_path, capsys):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(codex),
         "--extra-codex-state-db", str(invalid_db),
         "--out", str(tmp_path / "usage.json"),
@@ -492,6 +532,7 @@ def test_main_warns_when_explicit_state_db_is_missing(tmp_path, capsys):
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--codex-sessions", str(codex),
         "--extra-codex-state-db", str(missing_db),
         "--out", str(tmp_path / "usage.json"),
@@ -579,6 +620,7 @@ def test_main_snapshot_json_writes_only_json_to_stdout(tmp_path, capsys):
         "--claude-projects", str(projects),
         "--codex-sessions", str(codex),
         "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
         "--snapshot-json",
         "--machine-id", "testbox",
         "--out", str(out),
