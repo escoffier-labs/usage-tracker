@@ -76,6 +76,8 @@ MODEL_PRICING.update({
     "glm": (0.60, 2.20, 0.11, 0.0, 0.0),
     "gpt-5.6": (1.25, 10.0, 0.13, 0.0, 0.0),
     "grok": (2.0, 6.0, 0.50, 0.0, 0.0),
+    # Cursor (composer-class blended); tokens are estimated from transcript text.
+    "cursor": (1.25, 6.0, 0.12, 0.0, 0.0),
 })
 
 
@@ -205,6 +207,91 @@ def walk_agents_dir(agents_dir, oauth_providers=None, mtime_cutoff=None):
             if mtime_cutoff is not None and f.stat().st_mtime < mtime_cutoff:
                 continue
             records.extend(iter_openclaw_records(f, agent, oauth_providers))
+    return records
+
+
+def _cursor_text_chars(node):
+    """Total length of text/content strings in a Cursor transcript message."""
+    total = 0
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("text", "content") and isinstance(value, str):
+                total += len(value)
+            else:
+                total += _cursor_text_chars(value)
+    elif isinstance(node, list):
+        for item in node:
+            total += _cursor_text_chars(item)
+    return total
+
+
+def walk_cursor_transcripts(projects_dir, mtime_cutoff=None):
+    """Estimate Cursor usage from agent transcripts.
+
+    Cursor-agent writes ~/.cursor/projects/<proj>/agent-transcripts/<uuid>/<uuid>.jsonl
+    but records no token counts, no model, and no timestamps. Tokens are ESTIMATED
+    from the visible message text (~4 chars/token) and the file mtime is the
+    timestamp. This UNDERCOUNTS: the model context and tool output Cursor sends are
+    not in the transcript, so treat these as a rough lower bound (estimated=True).
+    """
+    base = Path(projects_dir)
+    records = []
+    for f in sorted(base.glob("*/agent-transcripts/*/*.jsonl")):
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        if mtime_cutoff is not None and st.st_mtime < mtime_cutoff:
+            continue
+        in_chars = 0
+        out_chars = 0
+        try:
+            fh = open(f, encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                if '"message"' not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                role = d.get("role") or d.get("type")
+                if role not in ("user", "assistant"):
+                    continue
+                chars = _cursor_text_chars(d.get("message"))
+                if role == "assistant":
+                    out_chars += chars
+                else:
+                    in_chars += chars
+        input_tokens = in_chars // 4
+        output_tokens = out_chars // 4
+        total = input_tokens + output_tokens
+        if not total:
+            continue
+        model = "cursor-composer"
+        cost = estimate_anthropic_cost(model, input_tokens, output_tokens, 0, {})
+        ts = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+        records.append({
+            "ts": ts,
+            "agent": "cursor",
+            "sessionId": f.stem,
+            "sessionKey": None,
+            "runId": None,
+            "provider": "cursor",
+            "modelId": model,
+            "modelApi": "cursor-agent",
+            "billing": "oauth",
+            "workspaceDir": None,
+            "input": input_tokens,
+            "output": output_tokens,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": total,
+            "costUsd": cost,
+            "estimated": True,
+        })
     return records
 
 
@@ -613,6 +700,20 @@ def main(argv=None):
         ),
     )
     parser.add_argument(
+        "--cursor-projects",
+        default=str(Path.home() / ".cursor" / "projects"),
+        help=(
+            "Cursor agent transcripts directory (default: ~/.cursor/projects). "
+            "Tokens are estimated from transcript text and undercount; "
+            "skipped silently when absent."
+        ),
+    )
+    parser.add_argument(
+        "--no-cursor",
+        action="store_true",
+        help="Skip Cursor agent transcripts entirely",
+    )
+    parser.add_argument(
         "--codex-sessions",
         default=str(Path.home() / ".codex" / "sessions"),
         help=(
@@ -698,6 +799,14 @@ def main(argv=None):
             for record in claude_records:
                 record["_source"] = "claudeCode"
             records.extend(claude_records)
+
+    if not args.no_cursor and Path(args.cursor_projects).is_dir():
+        cursor_records = walk_cursor_transcripts(
+            args.cursor_projects, mtime_cutoff=mtime_cutoff
+        )
+        for record in cursor_records:
+            record["_source"] = "cursor"
+        records.extend(cursor_records)
 
     if not args.no_codex:
         default_sessions = Path.home() / ".codex" / "sessions"
