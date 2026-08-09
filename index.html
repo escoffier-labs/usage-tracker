@@ -90,6 +90,27 @@
   .chart-tooltip.visible {
     opacity: 1;
   }
+
+  /* Data-age / freshness indicator (issue #6 companion) */
+  .data-age {
+    font-size: 12px;
+    line-height: 1.35;
+    opacity: 0.8;
+  }
+  .data-age--stale {
+    opacity: 1;
+    font-weight: 600;
+  }
+  #variant-1 .data-age { color: var(--v1-text-muted); }
+  #variant-1 .data-age--stale { color: #fbbf24; }
+  #variant-2 .data-age { color: var(--v2-text-dim); font-style: italic; }
+  #variant-2 .data-age--stale { color: var(--v2-accent); font-style: normal; }
+  #variant-3 .data-age { color: var(--v3-text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  #variant-3 .data-age--stale { color: #d97706; }
+  #variant-4 .data-age { color: var(--v4-text-dim); font-style: italic; }
+  #variant-4 .data-age--stale { color: #9a3412; font-style: normal; }
+  #variant-5 .data-age { color: var(--v5-text-dim); }
+  #variant-5 .data-age--stale { color: #fbbf24; }
   
   /* Keyboard shortcut overlay */
   .shortcut-overlay {
@@ -403,7 +424,9 @@
         <h1 style="font-size:28px; font-weight:700; margin:0; color:var(--v1-text); letter-spacing:-0.5px;">Usage Tracker</h1>
         <p style="margin:4px 0 0 0; font-size:14px; color:var(--v1-text-muted);">OpenClaw token usage &amp; cost analytics</p>
       </div>
-      <div style="display:flex; align-items:center; gap:16px;"></div>
+      <div style="display:flex; align-items:center; gap:16px;">
+        <div id="v1-data-age" class="data-age" aria-live="polite"></div>
+      </div>
     </div>
     
     <!-- Summary Cards -->
@@ -467,6 +490,7 @@
           <p style="font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500; text-transform:uppercase; letter-spacing:2px; color:var(--v2-accent); margin:0 0 8px 0;">OpenClaw Analytics</p>
           <h1 style="font-family:'Newsreader',serif; font-size:42px; font-weight:400; margin:0; color:var(--v2-text); letter-spacing:-1px;">Usage Tracker</h1>
         </div>
+        <div id="v2-data-age" class="data-age" aria-live="polite"></div>
       </div>
     </div>
     
@@ -527,6 +551,7 @@
         <h1 style="font-size:20px; font-weight:600; margin:0; color:var(--v3-text); letter-spacing:-0.3px;">USAGE TRACKER</h1>
         <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--v3-text-dim); letter-spacing:1px;">OPENCLAW</span>
       </div>
+      <div id="v3-data-age" class="data-age" aria-live="polite"></div>
     </div>
     
     <!-- Summary -->
@@ -587,6 +612,7 @@
       <h1 style="font-family:'Playfair Display',serif; font-size:36px; font-weight:400; margin:0; color:var(--v4-text); letter-spacing:1px;">Usage Tracker</h1>
       <div style="width:60px; height:1px; background:var(--v4-text); margin:16px auto; opacity:0.3;"></div>
       <p style="font-size:14px; color:var(--v4-text-dim); margin:0; font-style:italic;">Token consumption &amp; cost ledger</p>
+      <div id="v4-data-age" class="data-age" aria-live="polite" style="margin-top:10px;"></div>
     </div>
     
     <!-- Summary Cards -->
@@ -650,6 +676,7 @@
         <h1 style="font-size:30px; font-weight:800; margin:0; color:#a78bfa; letter-spacing:-0.5px;">Usage Tracker</h1>
         <p style="margin:4px 0 0 0; font-size:13px; color:var(--v5-text-dim);">OpenClaw analytics dashboard</p>
       </div>
+      <div id="v5-data-age" class="data-age" aria-live="polite"></div>
     </div>
     <div class="glow-line animate-fade-in" style="margin-bottom:32px;"></div>
     
@@ -1903,7 +1930,7 @@ function renderSessions(containerId, data, variant) {
         <span>${formatTokens(c.tokens)}</span>
         <span style="color:var(--v1-accent);">${formatCost(c.cost)}</span>
       </div>`).join('');
-      return `<div class="session-row" data-id="${s.sessionId}" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--v1-border); cursor:pointer; transition:background 0.15s;" onmouseenter="this.style.background='var(--v1-surface2)'" onmouseleave="this.style.background='transparent'" onclick="toggleSessionDetail(this)">
+      return `<div class="session-row" data-id="${esc(s.sessionId)}" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--v1-border); cursor:pointer; transition:background 0.15s;" onmouseenter="this.style.background='var(--v1-surface2)'" onmouseleave="this.style.background='transparent'" onclick="toggleSessionDetail(this)">
         <div style="display:flex; align-items:center; gap:12px; min-width:0;">
           <div style="width:8px; height:8px; border-radius:4px; background:${pc.primary}; flex-shrink:0;"></div>
           <div style="min-width:0;">
@@ -2208,6 +2235,72 @@ function renderSubscriptionROI(containerId, data, variant) {
 }
 
 // ============================================
+// DATA AGE / FRESHNESS (no polling)
+// ============================================
+// Named threshold so stale vs fresh is explicit and testable. Stale after
+// three missed 5-minute export intervals; older payloads get data-age--stale.
+const DATA_AGE_STALE_MS = 15 * 60 * 1000;
+
+function latestRecordTs(data) {
+  // normalizeRecords sorts calls newest-first into data.sessions.
+  const calls = data && data.sessions;
+  if (!calls || !calls.length) return null;
+  let latest = null;
+  for (const c of calls) {
+    const ts = c && c.timestamp;
+    if (!ts) continue;
+    if (!latest || String(ts) > String(latest)) latest = ts;
+  }
+  return latest;
+}
+
+function resolveDataObservedAt(data) {
+  // Prefer exporter / payload metadata; fall back to newest record timestamp
+  // for raw drops and legacy caches that lack generatedAt.
+  if (loadedWindow && loadedWindow.generatedAt) {
+    const gen = new Date(loadedWindow.generatedAt);
+    if (!isNaN(gen.getTime())) return gen;
+  }
+  const ts = latestRecordTs(data);
+  if (!ts) return null;
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatRelativeAge(ageMs) {
+  if (!isFinite(ageMs) || ageMs < 0) ageMs = 0;
+  const mins = Math.floor(ageMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return hours + 'h ago';
+  return Math.floor(hours / 24) + 'd ago';
+}
+
+function renderDataAgeIndicators() {
+  const observedAt = resolveDataObservedAt(currentData);
+  const now = Date.now();
+  for (let v = 1; v <= 5; v++) {
+    const el = document.getElementById(`v${v}-data-age`);
+    if (!el) continue;
+    el.classList.add('data-age');
+    if (!observedAt) {
+      el.textContent = currentData ? 'Data age unknown' : '';
+      el.classList.remove('data-age--stale');
+      continue;
+    }
+    const ageMs = now - observedAt.getTime();
+    const stale = ageMs > DATA_AGE_STALE_MS;
+    el.classList.toggle('data-age--stale', stale);
+    const rel = formatRelativeAge(ageMs);
+    el.textContent = stale
+      ? `Stale · updated ${rel}`
+      : `Updated ${rel}`;
+    el.title = 'Observed ' + observedAt.toISOString();
+  }
+}
+
+// ============================================
 // RENDER ALL FOR CURRENT VARIANT
 // ============================================
 function renderEmptyState() {
@@ -2221,10 +2314,11 @@ function renderEmptyState() {
 }
 
 function renderAll() {
+  const safe = (label, fn) => { try { fn(); } catch (e) { console.warn('[usage-tracker]', label, 'failed:', e.message); } };
+  safe('renderDataAgeIndicators', () => renderDataAgeIndicators());
   if (!currentData) { renderEmptyState(); return; }
   const v = currentVariant;
   const prefix = `v${v}`;
-  const safe = (label, fn) => { try { fn(); } catch (e) { console.warn('[usage-tracker]', label, 'failed:', e.message); } };
 
   safe('renderSummaryCards',   () => renderSummaryCards(`${prefix}-summary`, currentData, v));
   safe('renderSubscriptionROI',() => renderSubscriptionROI(`${prefix}-sub-roi`, currentData, v));
@@ -2357,10 +2451,15 @@ window.addEventListener('resize', () => {
 // ============================================
 document.addEventListener('DOMContentLoaded', async () => {
   setupDragAndDrop();
-  // Try fetched usage.json
+  // Try fetched usage.json (preserve generatedAt into localStorage cache)
   const records = await loadUsageJson();
   if (records && records.length) {
     currentData = normalizeRecords(records);
+    try {
+      localStorage.setItem('ut-usage-cache', JSON.stringify({ records, window: loadedWindow }));
+    } catch (err) {
+      console.warn('[usage-tracker] cache write failed (quota?):', err.message);
+    }
     renderAll();
   } else {
     // Try cached payload from localStorage
