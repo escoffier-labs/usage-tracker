@@ -220,7 +220,10 @@ def test_load_usage_json_and_cache_preserve_freshness_timestamp(inline_script: s
 
 
 def test_data_age_stale_threshold_is_documented_constant(inline_script: str) -> None:
-    """Stale state must not be implicit; expose a named threshold (no polling architecture)."""
-    assert re.search(r"DATA_AGE_STALE_MS\s*=\s*\d+", inline_script), (
-        "define DATA_AGE_STALE_MS so stale vs fresh is testable without live polling"
+    """Stale after three missed 5-minute export intervals (15 minutes, no polling)."""
+    match = re.search(r"const\s+DATA_AGE_STALE_MS\s*=\s*(.+?);", inline_script)
+    assert match, "define DATA_AGE_STALE_MS so stale vs fresh is testable without live polling"
+    expr = match.group(1).strip()
+    assert expr == "15 * 60 * 1000", (
+        f"DATA_AGE_STALE_MS must be 15 * 60 * 1000 (3×5min export cadence), got {expr!r}"
     )
