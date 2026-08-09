@@ -2237,9 +2237,9 @@ function renderSubscriptionROI(containerId, data, variant) {
 // ============================================
 // DATA AGE / FRESHNESS (no polling)
 // ============================================
-// Named threshold so stale vs fresh is explicit and testable. Cached or
-// exported payloads older than this surface data-age--stale in every variant.
-const DATA_AGE_STALE_MS = 24 * 60 * 60 * 1000;
+// Named threshold so stale vs fresh is explicit and testable. Stale after
+// three missed 5-minute export intervals; older payloads get data-age--stale.
+const DATA_AGE_STALE_MS = 15 * 60 * 1000;
 
 function latestRecordTs(data) {
   // normalizeRecords sorts calls newest-first into data.sessions.
