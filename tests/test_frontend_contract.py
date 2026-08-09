@@ -29,7 +29,9 @@ MALICIOUS_SESSION_CASES = (
     ),
     (
         '"><img src=x onerror=alert(1)><span data-id="',
-        ("<img", "onerror="),
+        # After esc(), entity-encoded markup may still contain the letters
+        # "onerror="; forbid the unescaped tag breakout instead.
+        ("<img", "onerror=alert(1)>"),
     ),
     (
         "' onmouseover='alert(1)' data-x='",
