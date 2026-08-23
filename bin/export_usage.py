@@ -10,6 +10,8 @@ Sources:
   since Claude Code does not record it)
 - Codex CLI rollouts: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
   (per-call token counts from token_count events; cost estimated the same way)
+- OpenCode Ox lane spools: ~/.brigade/ox-usage/*.jsonl
+  (per-message token counts captured before the disposable runtime exits)
 """
 
 import argparse
@@ -292,6 +294,73 @@ def walk_cursor_transcripts(projects_dir, mtime_cutoff=None):
             "costUsd": cost,
             "estimated": True,
         })
+    return records
+
+
+def walk_opencode_spool(spool_dir, mtime_cutoff=None):
+    """Walk OpenCode Ox lane usage spools and return per-message records."""
+    base = Path(spool_dir)
+    records = []
+    seen_msg_ids = set()
+    for f in sorted(base.glob("*.jsonl")):
+        try:
+            if mtime_cutoff is not None and f.stat().st_mtime < mtime_cutoff:
+                continue
+            fh = open(f, encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(message, dict) or message.get("role") != "assistant":
+                    continue
+                tokens = message.get("tokens")
+                if not isinstance(tokens, dict) or not tokens.get("total"):
+                    continue
+                message_id = message.get("message_id")
+                if message_id and message_id in seen_msg_ids:
+                    continue
+                try:
+                    ts = datetime.fromtimestamp(
+                        message["time_created"] / 1000, timezone.utc
+                    ).isoformat()
+                except (KeyError, TypeError, ValueError, OSError):
+                    continue
+                if message_id:
+                    seen_msg_ids.add(message_id)
+                cache = tokens.get("cache") or {}
+                session = message.get("session") or {}
+                if not isinstance(cache, dict):
+                    cache = {}
+                if not isinstance(session, dict):
+                    session = {}
+                session_id = message.get("session_id")
+                cwd = session.get("directory")
+                label = session.get("title") or (
+                    f"{Path(cwd).name}:{session_id[:8]}" if cwd and session_id else None
+                )
+                provider = message.get("provider")
+                records.append({
+                    "ts": ts,
+                    "agent": "opencode",
+                    "sessionId": session_id,
+                    "sessionKey": label,
+                    "runId": None,
+                    "provider": provider,
+                    "modelId": message.get("model"),
+                    "modelApi": "opencode",
+                    "billing": classify_billing(provider),
+                    "workspaceDir": cwd,
+                    "input": tokens.get("input", 0) or 0,
+                    "output": tokens.get("output", 0) or 0,
+                    "cacheRead": cache.get("read", 0) or 0,
+                    "cacheWrite": cache.get("write", 0) or 0,
+                    "totalTokens": tokens["total"],
+                    "costUsd": message.get("cost"),
+                })
     return records
 
 
@@ -663,7 +732,7 @@ def build_machine_snapshot(records, machine_id, generated_at=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Export OpenClaw + Claude Code session usage to a flat usage.json"
+        description="Export OpenClaw, Claude Code, Codex, and OpenCode session usage to a flat usage.json"
     )
     parser.add_argument(
         "--agents-dir",
@@ -712,6 +781,14 @@ def main(argv=None):
         "--no-cursor",
         action="store_true",
         help="Skip Cursor agent transcripts entirely",
+    )
+    parser.add_argument(
+        "--opencode-spool",
+        default=str(Path.home() / ".brigade" / "ox-usage"),
+        help=(
+            "Path to OpenCode Ox lane usage spools (default: "
+            "~/.brigade/ox-usage; skipped silently when absent)"
+        ),
     )
     parser.add_argument(
         "--codex-sessions",
@@ -808,6 +885,14 @@ def main(argv=None):
             record["_source"] = "cursor"
         records.extend(cursor_records)
 
+    if Path(args.opencode_spool).is_dir():
+        opencode_records = walk_opencode_spool(
+            args.opencode_spool, mtime_cutoff=mtime_cutoff
+        )
+        for record in opencode_records:
+            record["_source"] = "opencode"
+        records.extend(opencode_records)
+
     if not args.no_codex:
         default_sessions = Path.home() / ".codex" / "sessions"
         codex_dirs = [args.codex_sessions, *args.extra_codex_sessions]
@@ -854,6 +939,7 @@ def main(argv=None):
         "openclaw": sum(r.get("_source") == "openclaw" for r in records),
         "claudeCode": sum(r.get("_source") == "claudeCode" for r in records),
         "codexCli": sum(r.get("_source") == "codexCli" for r in records),
+        "opencode": sum(r.get("_source") == "opencode" for r in records),
     }
     for record in records:
         record.pop("_source", None)
@@ -890,6 +976,7 @@ def main(argv=None):
         f"exported {len(records)} records to {out_path} "
         f"({source_counts['openclaw']} openclaw, "
         f"{source_counts['claudeCode']} claude-code, {source_counts['codexCli']} codex-cli; "
+        f"{source_counts['opencode']} opencode; "
         f"{cost_known} with cost, {cost_missing} missing)",
         file=sys.stderr,
     )

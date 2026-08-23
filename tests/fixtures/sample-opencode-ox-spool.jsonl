@@ -1,0 +1,4 @@
+{"message_id":"ox-message-1","session_id":"ox-session-1","time_created":1787433000000,"model":"x-preview-f-free","provider":"opencode","role":"assistant","tokens":{"total":7604,"input":7534,"output":6,"reasoning":0,"cache":{"write":0,"read":64}},"cost":0,"session":{"directory":"/path/one","title":"Ox one","time_created":1787432900000}}
+{"message_id":"ox-message-2","session_id":"ox-session-2","time_created":1787433060000,"model":"glm-5.2","provider":"opencode","role":"assistant","tokens":{"total":350,"input":300,"output":20,"reasoning":0,"cache":{"write":10,"read":20}},"cost":0,"session":{"directory":"/path/two","title":"Ox two","time_created":1787432900000}}
+not valid json
+{"message_id":"ox-missing-tokens","session_id":"ox-session-3","time_created":1787433120000,"model":"x-preview-f-free","provider":"opencode","role":"assistant","cost":0,"session":{"directory":"/path/three","title":"Ox missing","time_created":1787432900000}}

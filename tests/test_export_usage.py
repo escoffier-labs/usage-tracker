@@ -12,6 +12,11 @@ sys.path.insert(0, str(ROOT / "bin"))
 OPENCLAW_FIXTURE = ROOT / "tests" / "fixtures" / "sample-openclaw-session.jsonl"
 CLAUDE_FIXTURE = ROOT / "tests" / "fixtures" / "sample-claude-project.jsonl"
 CODEX_FIXTURE = ROOT / "tests" / "fixtures" / "sample-codex-rollout.jsonl"
+OPENCODE_FIXTURE = ROOT / "tests" / "fixtures" / "sample-opencode-ox-spool.jsonl"
+
+
+def run_main_with_isolated_opencode_spool(eu, tmp_path, argv):
+    return eu.main([*argv, "--opencode-spool", str(tmp_path / "no-opencode")])
 
 
 def test_module_importable():
@@ -169,7 +174,7 @@ def test_main_combines_sources(tmp_path):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -210,7 +215,7 @@ def test_claudex_proxy_lanes_map_to_real_providers(tmp_path):
         }))
     (claudex / "-tmp-proxy" / "p1.jsonl").write_text("\n".join(lines))
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(claudex),
@@ -237,7 +242,7 @@ def test_cursor_transcripts_estimated_from_text(tmp_path):
         json.dumps({"role": "assistant", "message": {"content": "y" * 800}}),
     ]))
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -257,11 +262,53 @@ def test_cursor_transcripts_estimated_from_text(tmp_path):
     assert r["costUsd"] is not None and r["costUsd"] > 0
 
 
+def test_main_reads_opencode_ox_spool(tmp_path, capsys):
+    import export_usage as eu
+
+    spool = tmp_path / "opencode-spool"
+    spool.mkdir()
+    (spool / "first.jsonl").write_text(OPENCODE_FIXTURE.read_text())
+    duplicate = OPENCODE_FIXTURE.read_text().splitlines()[0]
+    (spool / "second.jsonl").write_text(duplicate + "\n")
+    out = tmp_path / "usage.json"
+
+    rc = eu.main([
+        "--agents-dir", str(tmp_path / "no-agents"),
+        "--claude-projects", str(tmp_path / "no-claude"),
+        "--claudex-projects", str(tmp_path / "no-claudex"),
+        "--cursor-projects", str(tmp_path / "no-cursor"),
+        "--codex-sessions", str(tmp_path / "no-codex"),
+        "--opencode-spool", str(spool),
+        "--summary-json",
+        "--out", str(out),
+    ])
+
+    assert rc == 0
+    records = json.loads(out.read_text())["records"]
+    assert len(records) == 2
+    by_session = {record["sessionId"]: record for record in records}
+    first = by_session["ox-session-1"]
+    assert first["agent"] == "opencode"
+    assert first["provider"] == "opencode"
+    assert first["modelId"] == "x-preview-f-free"
+    assert first["totalTokens"] == 7604
+    assert first["input"] == 7534
+    assert first["output"] == 6
+    assert first["cacheRead"] == 64
+    assert first["cacheWrite"] == 0
+    assert first["costUsd"] == 0
+    assert first["workspaceDir"] == "/path/one"
+    assert first["ts"] == "2026-08-22T21:10:00+00:00"
+    assert json.loads(capsys.readouterr().out)["sources"] == {
+        "openclaw": 0, "claudeCode": 0, "codexCli": 0, "opencode": 2,
+    }
+
+
 def test_main_no_claude_code_no_codex(tmp_path):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -280,7 +327,7 @@ def test_main_missing_source_dirs_is_fine(tmp_path):
     import export_usage as eu
     agents, _, _ = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(tmp_path / "does-not-exist"),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -298,7 +345,7 @@ def test_main_since_filters(tmp_path):
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
     # Cutoff between openclaw (06-01) and claude-code (06-02) / codex (06-03)
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -316,7 +363,7 @@ def test_main_oauth_providers_flag(tmp_path):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -422,7 +469,7 @@ def test_main_includes_repeatable_extra_sources_and_state_backfill(tmp_path):
         ("db-only", "/missing.jsonl", 1700000000, 1700000100, "openai", "/repo/db", 777, "gpt-5.5"),
     ])
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -444,7 +491,7 @@ def test_main_summary_json_prints_machine_readable_counts(tmp_path, capsys):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -457,7 +504,9 @@ def test_main_summary_json_prints_machine_readable_counts(tmp_path, capsys):
     captured = capsys.readouterr()
     summary = json.loads(captured.out)
     assert summary["records"] == 6
-    assert summary["sources"] == {"openclaw": 2, "claudeCode": 2, "codexCli": 2}
+    assert summary["sources"] == {
+        "openclaw": 2, "claudeCode": 2, "codexCli": 2, "opencode": 0,
+    }
     assert summary["costKnown"] == 4
     assert summary["costMissing"] == 2
     assert summary["totalTokens"] == sum(
@@ -469,7 +518,7 @@ def test_main_deduplicates_repeated_extra_source_paths(tmp_path):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -487,7 +536,7 @@ def test_main_summary_source_counts_follow_since_filter(tmp_path, capsys):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "usage.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -500,7 +549,9 @@ def test_main_summary_source_counts_follow_since_filter(tmp_path, capsys):
     assert rc == 0
     summary = json.loads(capsys.readouterr().out)
     assert summary["records"] == 4
-    assert summary["sources"] == {"openclaw": 0, "claudeCode": 2, "codexCli": 2}
+    assert summary["sources"] == {
+        "openclaw": 0, "claudeCode": 2, "codexCli": 2, "opencode": 0,
+    }
     assert sum(summary["sources"].values()) == summary["records"]
 
 
@@ -509,7 +560,7 @@ def test_main_warns_when_explicit_state_db_is_invalid(tmp_path, capsys):
     agents, projects, codex = _make_tree(tmp_path)
     invalid_db = tmp_path / "invalid.sqlite"
     invalid_db.write_text("not sqlite")
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -528,7 +579,7 @@ def test_main_warns_when_explicit_state_db_is_missing(tmp_path, capsys):
     import export_usage as eu
     agents, projects, codex = _make_tree(tmp_path)
     missing_db = tmp_path / "missing.sqlite"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--claudex-projects", str(tmp_path / "no-claudex"),
@@ -553,6 +604,7 @@ def test_cli_help_lists_documented_export_flags(capsys):
         "--extra-claude-projects",
         "--extra-codex-sessions",
         "--extra-codex-state-db",
+        "--opencode-spool",
     ):
         assert flag in help_text
 
@@ -615,7 +667,7 @@ def test_main_snapshot_json_writes_only_json_to_stdout(tmp_path, capsys):
 
     agents, projects, codex = _make_tree(tmp_path)
     out = tmp_path / "should-not-exist.json"
-    rc = eu.main([
+    rc = run_main_with_isolated_opencode_spool(eu, tmp_path, [
         "--agents-dir", str(agents),
         "--claude-projects", str(projects),
         "--codex-sessions", str(codex),

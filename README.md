@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  Static page plus a tiny Python exporter: OpenClaw, Claude Code, and Codex session spend. API cost vs OAuth subscription value, per model and per agent. No backend or external runtime assets.
+  Static page plus a tiny Python exporter: OpenClaw, Claude Code, Codex, and OpenCode session spend. API cost vs OAuth subscription value, per model and per agent. No backend or external runtime assets.
 </p>
 
 <p align="center">
@@ -40,7 +40,7 @@ python3 -m http.server 5200
 
 | | Job | What you get |
 |---|---|---|
-| **Collect** | Local transcripts | OpenClaw, Claude Code, Codex rollouts |
+| **Collect** | Local transcripts | OpenClaw, Claude Code, Codex rollouts, OpenCode Ox spools |
 | **Split** | API vs OAuth value | What you paid vs what subscriptions absorbed |
 | **Chart** | Models and agents | Daily series, per-model bars, session tables |
 | **Stay local** | Static HTML | No backend or third-party requests |
@@ -84,6 +84,7 @@ Each call is classified as `oauth` (subscription burn, billed flat) or `api` (re
 - Override per export with `--oauth-providers`. Example: if grok runs on a SuperGrok subscription via device-code OAuth, use `--oauth-providers openai-codex,claude-cli,acpx,google-gemini-cli,xai`.
 - Claude Code records are always `oauth` (Claude Code transcripts carry token counts but no cost; the exporter estimates the API-equivalent cost from a built-in pricing table). Disable the source with `--no-claude-code`, point elsewhere with `--claude-projects PATH`, or include more machines/backups with repeatable `--extra-claude-projects PATH`.
 - Codex CLI rollouts (`~/.codex/sessions` and `~/.codex/archived_sessions`) are always `oauth` (ChatGPT subscription); per-call tokens come from `token_count` events and cost is estimated from the same pricing table. The exporter also reads `~/.codex/state_5.sqlite` for total-only backfill when a Codex thread exists but its rollout records are missing. Disable with `--no-codex`, point elsewhere with `--codex-sessions PATH`, include more machines/backups with repeatable `--extra-codex-sessions PATH`, or add more SQLite backfills with repeatable `--extra-codex-state-db PATH`.
+- OpenCode Ox lane usage is read from `~/.brigade/ox-usage/*.jsonl`; each spooled assistant message retains its recorded provider, model, token counts, and cost. Point at an archived or isolated spool directory with `--opencode-spool PATH`.
 - Models missing from the pricing table export with `costUsd: null`; the page counts them as "calls missing cost data" instead of silently pricing them at zero.
 
 ## Drag-and-drop fallback
@@ -96,7 +97,7 @@ If `data/usage.json` is missing (e.g., you opened the page on a different machin
 
 Generated from [`docs/assets/workflows/usage-evidence.json`](docs/assets/workflows/usage-evidence.json) with `plating workflow`.
 
-- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/**/*.jsonl` (Codex CLI rollouts, including archived sessions), extracts per-call usage, writes a flat array to `data/usage.json`, and uses Codex `state_5.sqlite` only as a total-only missing-thread backfill. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
+- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), `~/.codex/**/*.jsonl` (Codex CLI rollouts, including archived sessions), and `~/.brigade/ox-usage/*.jsonl` (OpenCode Ox lane spools), extracts per-call usage, writes a flat array to `data/usage.json`, and uses Codex `state_5.sqlite` only as a total-only missing-thread backfill. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
 - Codex profile/account counters may include server-side usage that is not retained in local rollout files or SQLite state. This tracker reports local evidence plus local backfill, not an authoritative account lifetime total.
 - `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
 - No backend. localStorage caches the last load and your subscription settings.
