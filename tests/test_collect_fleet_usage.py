@@ -177,3 +177,28 @@ def test_shipped_config_matches_the_systemd_unit():
     service = (ROOT / "systemd" / "usage-tracker-fleet.service").read_text()
     assert "bin/collect_fleet_usage.py" in service and "data/fleet-usage.json" in service
     assert (ROOT / "systemd" / "usage-tracker-fleet.timer").exists()
+
+
+@pytest.mark.parametrize("machine", [
+    {"machineId": "../../target", "mode": "local"},
+    {"machineId": "-oProxyCommand=id", "mode": "ssh"},
+    {"machineId": "box (prod)", "mode": "ssh"},
+    {"machineId": "ok", "mode": "ssh", "alias": "-oProxyCommand=id"},
+    {"machineId": "ok", "mode": "ssh", "python": "python3; id"},
+    {"machineId": "ok", "mode": "ssh", "timeZone": "UTC; rm -rf ~"},
+    {"machineId": "ok", "mode": "telnet"},
+])
+def test_unsafe_config_values_are_rejected(tmp_path, machine):
+    with pytest.raises(ValueError):
+        cf.build_command(machine, ROOT, 31, 10)
+    with pytest.raises(ValueError):
+        cf.collect_fleet({"machines": [machine]}, tmp_path / "fleet-usage.json")
+    assert not (tmp_path / "fleet-usage.json").exists()
+
+
+def test_shipped_config_passes_validation():
+    config = json.loads((ROOT / "config" / "fleet.json").read_text())
+    for machine in config["machines"]:
+        cf.validate_machine(machine)
+    cf.validate_machine({"machineId": "win-box", "mode": "ssh", "alias": "me@win-box",
+                         "python": "C:\\Python312\\python.exe", "timeZone": "America/New_York"})

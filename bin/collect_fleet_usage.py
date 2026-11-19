@@ -12,6 +12,7 @@ import argparse
 import base64
 import io
 import json
+import re
 import subprocess
 import sys
 import zipfile
@@ -53,6 +54,29 @@ def build_bundle(root=ROOT):
     return buffer.getvalue()
 
 
+# Config values end up in a remote shell command (ssh joins its arguments with spaces) and in a
+# local file name, so they are validated instead of quoted: quoting rules differ between the
+# POSIX and Windows shells the fleet runs on.
+MACHINE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+ALIAS_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]{0,252}")
+PYTHON_RE = re.compile(r"[A-Za-z0-9_./\\:-]+")
+TIMEZONE_RE = re.compile(r"[A-Za-z0-9_+/-]+")
+
+
+def validate_machine(machine):
+    """Reject config values that could escape the ssh command line or the cache directory."""
+    machine_id = str(machine.get("machineId") or "")
+    if not MACHINE_ID_RE.fullmatch(machine_id) or machine_id in (".", ".."):
+        raise ValueError(f"invalid machineId {machine_id!r}: use letters, digits, '.', '_' or '-'")
+    if machine.get("mode", "ssh") not in ("local", "ssh"):
+        raise ValueError(f"{machine_id}: mode must be 'local' or 'ssh'")
+    checks = (("alias", ALIAS_RE), ("python", PYTHON_RE), ("timeZone", TIMEZONE_RE))
+    for key, pattern in checks:
+        value = machine.get(key)
+        if value is not None and not pattern.fullmatch(str(value)):
+            raise ValueError(f"{machine_id}: invalid {key} {str(value)!r}")
+
+
 def exporter_args(machine, days):
     args = ["--stdout-json", "--days", str(days), "--machine-id", str(machine["machineId"])]
     if machine.get("timeZone"):
@@ -68,6 +92,7 @@ def exporter_args(machine, days):
 
 def build_command(machine, root, days, connect_timeout):
     """Return (argv, stdin bytes or None) for one machine."""
+    validate_machine(machine)
     args = exporter_args(machine, days)
     if machine.get("mode") == "local":
         return [sys.executable, str(Path(root) / "bin" / "export_usage.py"), *args], None
@@ -176,8 +201,11 @@ def collect_fleet(config, out_path, root=ROOT, runner=subprocess.run, generated_
     machines = []
     daily = []
     hourly = []
+    rows = config.get("machines") or []
+    for machine in rows:
+        validate_machine(machine)
 
-    for machine in sorted(config.get("machines") or [], key=lambda row: str(row.get("machineId"))):
+    for machine in sorted(rows, key=lambda row: str(row.get("machineId"))):
         machine_id = str(machine["machineId"])
         cache_path = cache_dir / f"{machine_id}.json"
         status, error = "ok", None
