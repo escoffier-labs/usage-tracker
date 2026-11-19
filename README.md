@@ -69,6 +69,8 @@ Missing folders are skipped silently. Locations and parsing rules match T3 Code'
 
 Prices come from [LiteLLM's model price table](https://github.com/BerriAI/litellm), fetched once a day and cached in your user cache directory (`~/.cache/usage-tracker` on Linux). Offline, the cached copy is used; with no cache, costs show as unknown rather than zero.
 
+Parsed Claude, Codex, Grok and Pi transcripts are cached per file in the same directory (`usage-scan-cache-v1.json`, ported from T3 Code's scan cache). A file is reused while its size, mtime and inode are unchanged; a changed file is parsed again whole, and entries for deleted files are dropped. The cache holds token counts, model names, session ids and timestamps, never prompts, message text or credentials, and cost is computed after it, so prices and overrides still apply. A warm export gives the same output as a cold one. `python3 bin/export_usage.py --no-cache` ignores it, deleting the file only costs one slow run, and an unwritable cache directory just means no cache. On one machine with about 5,700 transcripts a 30 day export went from 45 s to 3 s.
+
 Not ported from T3 Code: Cursor and Muse, and T3's own database lookup that resolves some older Codex service tiers (those requests are billed as standard).
 
 ### Limits

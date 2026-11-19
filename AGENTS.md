@@ -9,7 +9,7 @@
 ## Architecture
 - `usage_tracker/` is the Python package (stdlib only):
   - `readers/` one module per provider (claude, codex, opencode, grok, antigravity, pi), ported from T3's readers. `transcripts.py` is the shared JSONL walker.
-  - `scan.py` runs the readers and does cross-file dedupe; `aggregate.py` builds hourly and daily buckets; `pricing.py` handles LiteLLM rates and the cache.
+  - `scan.py` runs the readers and does cross-file dedupe; `aggregate.py` builds hourly and daily buckets; `pricing.py` handles LiteLLM rates and the cache. `scan_cache.py` caches parsed per-file records (Claude, Codex, Grok, Pi transcripts) in the same cache directory, ported from T3's usageScanCache.ts: size, mtime and inode must match, changed files are re-read whole, cost is applied after the cache, and `--no-cache` bypasses it. Warm and cold output must stay byte-identical (`tests/test_scan_cache.py`).
   - `limits.py` reads Claude and Codex limits with the saved logins; `export.py` writes `data/usage.json`; `server.py` is the launcher.
 - `index.html` is the whole page: single file, vanilla JS, inline SVG, no CDN or external asset. The pure logic sits between `// BEGIN USAGE MODEL` and `// END USAGE MODEL` and is tested by `tests/frontend.test.js` through `vm`. Keep DOM code out of that block.
 - `data/usage.json` is generated and git-ignored. Its shape is the bucket format in `docs/fleet-usage-schema.md`.

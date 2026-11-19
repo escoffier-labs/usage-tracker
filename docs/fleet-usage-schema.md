@@ -176,7 +176,9 @@ machines can price a model differently for a day after a price change.
 `config/fleet.json` lists the machines. Per machine: `machineId`, `mode` (`local` or `ssh`),
 `alias` (the SSH host alias), `python` (the remote interpreter, default `python3`), and the
 optional `timeZone` (an IANA name, so every machine buckets days the same way), `limits`
-(`false` skips the limits request) and `offline` (cached prices only). Top level: `days`
+(`false` skips the limits request), `offline` (cached prices only) and `cache` (`false` passes
+`--no-cache`; by default each machine keeps its own scan cache in its own user cache directory).
+Top level: `days`
 (default 31), `connectTimeoutSeconds` and `processTimeoutSeconds`.
 
 For an SSH machine the collector pipes a small bundle of the exporter to `python3 -` over

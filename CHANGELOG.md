@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `index.html` is a single file with hourly and daily windows, per-provider chart, share bars, model dialog, price overrides (stored in the browser), limits cards, keyboard shortcuts and light and dark themes.
 - **Breaking:** `data/fleet-usage.json` is now schema version 2: the same buckets as `data/usage.json` with a machine dimension and each machine's limits. See `docs/fleet-usage-schema.md`. Consumers (opsdeck-api) must be updated before this version is pulled onto a machine running the fleet timer. The collector, `config/fleet.json` and the `usage-tracker-fleet` systemd units keep their names; the collector now runs the new exporter over SSH and is optional.
 
+### Added
+- A per-file scan cache for Claude, Codex, Grok and Pi transcripts, ported from T3 Code's usage scan cache. Unchanged files are not parsed again, so a repeat export of a large history takes seconds instead of most of a minute. Cost is computed after the cache, output is identical warm or cold, and `--no-cache` (also `"cache": false` per machine in `config/fleet.json`) skips it.
+
 ### Removed
 - The OpenClaw session reader, the API-versus-OAuth billing split, the subscription ROI panel, the five design variants and the drag-and-drop trajectory loader. The old version stays in git history.
 

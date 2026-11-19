@@ -44,7 +44,8 @@ class Env:
         return (self.environ.get(name) or "").strip()
 
 
-ReaderFn = Callable[[Env, float], List[SourceScan]]
+# (env, window_start_ms, optional scan cache) -> one scan per directory.
+ReaderFn = Callable[..., List[SourceScan]]
 
 
 def all_readers() -> Dict[str, ReaderFn]:

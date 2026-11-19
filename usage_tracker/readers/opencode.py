@@ -211,5 +211,6 @@ def data_dirs(env: Env) -> List[str]:
     return dedupe_paths(roots)
 
 
-def scan(env: Env, window_start_ms: float) -> List[SourceScan]:
+def scan(env: Env, window_start_ms: float, cache=None) -> List[SourceScan]:
+    # SQLite and per-message JSON sources are not cached: they are not append-only transcripts.
     return [read_root(root, window_start_ms) for root in data_dirs(env)]

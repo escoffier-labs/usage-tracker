@@ -18,6 +18,7 @@ from .model import PROVIDERS
 from .pricing import LITELLM_URL, load_rates, rates_for_export
 from .readers import Env
 from .scan import run_scan
+from .scan_cache import ScanCache
 
 SCHEMA_VERSION = 1
 DEFAULT_DAYS = 90
@@ -84,6 +85,8 @@ def build_payload(
     rates_fetch: Optional[Callable] = None,
     rates_path: Optional[str] = None,
     machine_id: Optional[str] = None,
+    use_cache: bool = True,
+    scan_cache_path: Optional[str] = None,
 ) -> dict:
     env = env or Env()
     started = time.time()
@@ -106,7 +109,12 @@ def build_payload(
     rates = load_rates(**kwargs)
 
     aggregator = Aggregator(rates.table, to_local, since_day, today, hour_since_ms)
-    sources = run_scan(aggregator, env, window_start_ms, providers, progress, home_label=True)
+    cache = ScanCache.load(scan_cache_path) if use_cache else None
+    sources = run_scan(aggregator, env, window_start_ms, providers, progress, home_label=True, cache=cache)
+    if cache is not None:
+        cache.finish(now_ms)
+        if progress and cache.enabled:
+            progress(f"Scan cache: {cache.hits} file(s) reused, {cache.parsed} parsed.")
     daily, hourly = aggregator.finish()
 
     models = {b["model"] for b in daily} | {b["model"] for b in hourly}
@@ -195,6 +203,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--providers", help="Comma-separated subset of: " + ", ".join(PROVIDERS))
     parser.add_argument("--no-limits", action="store_true", help="Skip the Claude and Codex limits requests.")
     parser.add_argument("--offline", action="store_true", help="Use cached prices only; make no price request.")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Parse every transcript; neither read nor write the per-file scan cache.")
     parser.add_argument("--quiet", action="store_true", help="Print nothing on success.")
     parser.add_argument("--stdout-json", action="store_true",
                         help="Write the JSON to stdout instead of a file, with nothing else on stdout. "
@@ -225,7 +235,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     payload = build_payload(
         days=args.days, tz_name=args.timezone, offline=args.offline, providers=providers,
         with_limits=not args.no_limits, progress=progress,
-        machine_id=args.machine_id,
+        machine_id=args.machine_id, use_cache=not args.no_cache,
     )
     if args.stdout_json:
         json.dump(payload, sys.stdout, separators=(",", ":"))

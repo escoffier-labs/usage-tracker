@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 from .aggregate import Aggregator
 from .model import PROVIDERS, Record
 from .readers import Env, all_readers
+from .scan_cache import ScanCache
 from .transcripts import FileScan, SourceScan
 
 MALFORMED = "{n} malformed or inconsistent usage record(s) were skipped; usage may be incomplete."
@@ -38,8 +39,13 @@ def run_scan(
     providers: Optional[Sequence[str]] = None,
     progress: Optional[Callable[[str], None]] = None,
     home_label: Optional[str] = None,
+    cache: Optional[ScanCache] = None,
 ) -> List[dict]:
-    """Scan the selected providers into `aggregator`; return one source report per directory."""
+    """Scan the selected providers into `aggregator`; return one source report per directory.
+
+    `cache` (optional) reuses the parsed records of unchanged transcripts; output is identical
+    with or without it.
+    """
     readers = all_readers()
     selected = [p for p in PROVIDERS if providers is None or p in providers]
     scanned: List[SourceScan] = []
@@ -47,7 +53,7 @@ def run_scan(
         if progress:
             progress(f"Scanning {provider}...")
         try:
-            scanned.extend(readers[provider](env, window_start_ms))
+            scanned.extend(readers[provider](env, window_start_ms, cache))
         except Exception as error:  # one broken reader must not hide the others
             scanned.append(SourceScan(provider, "", [], "failed", f"{provider} could not be read: {type(error).__name__}"))
 

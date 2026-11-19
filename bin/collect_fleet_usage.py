@@ -61,6 +61,8 @@ def exporter_args(machine, days):
         args.append("--no-limits")
     if machine.get("offline"):
         args.append("--offline")
+    if machine.get("cache") is False:
+        args.append("--no-cache")
     return args
 
 

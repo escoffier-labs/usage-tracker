@@ -8,9 +8,12 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from typing import Callable, Iterator, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, Iterator, List, NamedTuple, Optional, Sequence, Tuple
 
 from .model import Record
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .scan_cache import ScanCache
 
 try:  # Python 3.14+
     from compression import zstd as _zstd  # type: ignore
@@ -54,11 +57,21 @@ class TranscriptFormat:
     file_name: Optional[str] = None
 
 
+class TranscriptFile(NamedTuple):
+    """A transcript found by the walk, with the stat fields the scan cache validates against."""
+
+    path: str
+    size: int
+    mtime_ms: float
+    mtime_ns: int
+    inode: int
+
+
 def list_transcript_files(
     root: str, since_ms: float, file_name: Optional[str] = None
-) -> Tuple[List[Tuple[str, int, float]], int]:
-    """Return (path, size, mtime_ms) for files modified at or after since_ms, in sorted walk order."""
-    found: List[Tuple[str, int, float]] = []
+) -> Tuple[List[TranscriptFile], int]:
+    """Return the transcripts modified at or after since_ms, in sorted walk order, and a failure count."""
+    found: List[TranscriptFile] = []
     failed = 0
     stack = [root]
     while stack:
@@ -94,10 +107,11 @@ def list_transcript_files(
                 failed += 1
                 continue
             if stat.st_mtime * 1000 >= since_ms:
-                found.append((entry.path, stat.st_size, stat.st_mtime * 1000))
+                found.append(TranscriptFile(
+                    entry.path, stat.st_size, stat.st_mtime * 1000, stat.st_mtime_ns, stat.st_ino))
         # Depth-first in name order: push reversed so the first directory is popped first.
         stack.extend(reversed(subdirs))
-    found.sort(key=lambda item: item[0])
+    found.sort(key=lambda item: item.path)
     return found, failed
 
 
@@ -162,18 +176,26 @@ def parse_transcript(path: str, fmt: TranscriptFormat) -> Optional[FileScan]:
 
 
 def scan_transcript_dir(
-    directory: str, fmt: TranscriptFormat, window_start_ms: float
+    directory: str, fmt: TranscriptFormat, window_start_ms: float, cache: "Optional[ScanCache]" = None
 ) -> SourceScan:
     if not os.path.isdir(directory):
         return SourceScan(fmt.provider, directory, None)
     files, failed = list_transcript_files(directory, window_start_ms, fmt.file_name)
     scans: List[FileScan] = []
     unread = failed
-    for path, _size, _mtime in files:
-        result = parse_transcript(path, fmt)
+    for file in files:
+        # A hit is a file whose size, mtime and inode match what was parsed last time. Changed files
+        # are re-read whole: appended lines can change the state later lines are parsed against.
+        hit = cache.lookup(fmt.provider, file) if cache is not None else None
+        if hit is not None:
+            scans.append(FileScan(file.path, hit[0], hit[1]))
+            continue
+        result = parse_transcript(file.path, fmt)
         if result is None:
             unread += 1
             continue
+        if cache is not None:
+            cache.store(fmt.provider, file, result.records, result.malformed)
         scans.append(result)
     source = SourceScan(fmt.provider, directory, scans)
     if unread:

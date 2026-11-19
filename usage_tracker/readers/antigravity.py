@@ -420,7 +420,8 @@ def data_roots(env: Env) -> List[str]:
     return dedupe_paths(roots)
 
 
-def scan(env: Env, window_start_ms: float) -> List[SourceScan]:
+def scan(env: Env, window_start_ms: float, cache=None) -> List[SourceScan]:
+    # SQLite and per-message JSON sources are not cached: they are not append-only transcripts.
     conversation_dirs: List[str] = []
     for root in data_roots(env):
         nested_dir = os.path.join(root, "conversations")

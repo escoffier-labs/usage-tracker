@@ -95,5 +95,5 @@ def directories(env: Env) -> List[str]:
     return [os.path.realpath(os.path.join(home, "projects"))]
 
 
-def scan(env: Env, window_start_ms: float) -> List[SourceScan]:
-    return [scan_transcript_dir(path, FORMAT, window_start_ms) for path in directories(env)]
+def scan(env: Env, window_start_ms: float, cache=None) -> List[SourceScan]:
+    return [scan_transcript_dir(path, FORMAT, window_start_ms, cache) for path in directories(env)]
