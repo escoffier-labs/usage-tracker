@@ -225,3 +225,32 @@ def test_shipped_config_covers_the_longest_page_window():
     config = json.loads((ROOT / "config" / "fleet.json").read_text())
     assert config["days"] >= 90
     assert config["timeZone"]
+
+
+def test_bounded_run_returns_output_and_exit_code():
+    result = cf.bounded_run([sys.executable, "-c", "import sys; d=sys.stdin.read(); print(d.upper()); sys.exit(3)"],
+                            input=b"hello", timeout=30)
+    assert result.returncode == 3 and result.stdout.strip() == b"HELLO"
+
+
+def test_bounded_run_stops_a_flooding_remote(monkeypatch):
+    monkeypatch.setattr(cf, "MAX_STDOUT_BYTES", 100_000)
+    with pytest.raises(RuntimeError, match="stdout exceeded"):
+        cf.bounded_run([sys.executable, "-c", "import sys\nwhile True: sys.stdout.write('x'*65536)"], timeout=30)
+
+
+def test_bounded_run_times_out(monkeypatch):
+    with pytest.raises(subprocess.TimeoutExpired):
+        cf.bounded_run([sys.executable, "-c", "import time; time.sleep(30)"], timeout=1)
+
+
+def test_fleet_json_is_private_and_ignores_a_planted_temp_symlink(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me")
+    out = tmp_path / "fleet-usage.json"
+    (tmp_path / "fleet-usage.json.tmp").symlink_to(victim)  # the old predictable temp name
+    cf.write_json_atomic(out, {"ok": True})
+    assert victim.read_text() == "keep me"
+    assert json.loads(out.read_text()) == {"ok": True}
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".fleet-usage.json.")]

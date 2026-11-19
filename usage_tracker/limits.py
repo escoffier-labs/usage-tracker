@@ -45,7 +45,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_opener = urllib.request.build_opener(_NoRedirect)
+# ProxyHandler({}) ignores HTTPS_PROXY and friends: a proxy that can terminate TLS would
+# otherwise see the bearer token, and the token must reach only the provider's own host.
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
 
 def http_get_json(url: str, headers: Dict[str, str]) -> dict:

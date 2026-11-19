@@ -12,9 +12,12 @@ import argparse
 import base64
 import io
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,11 +138,22 @@ def sanitize_error(value):
 
 
 def write_json_atomic(path, payload, indent=None):
+    """Write via a fresh private temp file (mode 0600, never a pre-existing path), then rename."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=indent, separators=None if indent else (",", ":")) + "\n")
-    temporary.replace(path)
+    text = json.dumps(payload, indent=indent, separators=None if indent else (",", ":")) + "\n"
+    fd, temporary = tempfile.mkstemp(dir=str(path.parent), prefix="." + path.name + ".", suffix=".tmp")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def read_json(path):
@@ -157,6 +171,68 @@ def validate_machine_payload(payload, machine_id):
     if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("hourly"), list):
         raise ValueError("machine payload buckets missing")
     return payload
+
+
+MAX_STDOUT_BYTES = 32 * 1024 * 1024  # a 92 day machine payload is well under 1 MB
+MAX_STDERR_BYTES = 64 * 1024
+
+
+def bounded_run(command, input=None, stdout=None, stderr=None, timeout=None, check=False):
+    """subprocess.run with a byte cap on both streams.
+
+    A remote machine controls what comes back over ssh, so its output is read incrementally
+    and the child is killed as soon as either stream passes its cap, instead of buffering
+    everything until the timeout.
+    """
+    process = subprocess.Popen(command, stdin=subprocess.PIPE if input is not None else None,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    chunks = {"stdout": bytearray(), "stderr": bytearray()}
+    limits = {"stdout": MAX_STDOUT_BYTES, "stderr": MAX_STDERR_BYTES}
+    overflow = []
+
+    def drain(name, stream):
+        buffer = chunks[name]
+        while True:
+            block = stream.read(65536)
+            if not block:
+                break
+            if len(buffer) + len(block) > limits[name]:
+                overflow.append(name)
+                process.kill()
+                break
+            buffer.extend(block)
+        stream.close()
+
+    def feed():
+        try:
+            process.stdin.write(input)
+        except (BrokenPipeError, OSError):
+            pass
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+
+    threads = [threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
+               threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True)]
+    if input is not None:
+        threads.append(threading.Thread(target=feed, daemon=True))
+    for thread in threads:
+        thread.start()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        for thread in threads:
+            thread.join(timeout=5)
+    if overflow:
+        raise RuntimeError(f"remote {overflow[0]} exceeded {limits[overflow[0]]} bytes; collection stopped")
+    return subprocess.CompletedProcess(command, process.returncode, bytes(chunks["stdout"]),
+                                       bytes(chunks["stderr"]))
 
 
 def collect_machine(machine, root, days, connect_timeout, process_timeout, runner):
@@ -211,7 +287,7 @@ def fleet_bucket(bucket, machine_id):
     return out
 
 
-def collect_fleet(config, out_path, root=ROOT, runner=subprocess.run, generated_at=None):
+def collect_fleet(config, out_path, root=ROOT, runner=bounded_run, generated_at=None):
     out_path = Path(out_path)
     cache_dir = out_path.parent / "fleet-machines"
     days = int(config.get("days") or DEFAULT_DAYS)

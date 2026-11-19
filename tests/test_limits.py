@@ -151,3 +151,16 @@ def test_claude_config_dir_override(tmp_path):
     write(tmp_path / "alt" / ".credentials.json", {"claudeAiOauth": {"accessToken": SECRET}})
     env = Env({"CLAUDE_CONFIG_DIR": str(tmp_path / "alt")}, str(tmp_path))
     assert limits.read_claude_token(env) == SECRET
+
+
+def test_credential_requests_ignore_proxy_environment(monkeypatch):
+    import urllib.request
+    from usage_tracker import limits as lim
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+    # A default opener picks the proxy up from the environment...
+    default = urllib.request.build_opener(lim._NoRedirect)
+    assert any(isinstance(h, urllib.request.ProxyHandler) for h in default.handlers)
+    # ...the credential opener has no proxy handler at all.
+    rebuilt = urllib.request.build_opener(urllib.request.ProxyHandler({}), lim._NoRedirect)
+    for opener in (lim._opener, rebuilt):
+        assert not any(isinstance(h, urllib.request.ProxyHandler) for h in opener.handlers)
