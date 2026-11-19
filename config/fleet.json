@@ -1,5 +1,7 @@
 {
-  "days": 31,
+  "days": 92,
+  "timeZone": "America/New_York",
+  "limitsMaxAgeMinutes": 15,
   "connectTimeoutSeconds": 10,
   "processTimeoutSeconds": 300,
   "machines": [

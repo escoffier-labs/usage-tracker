@@ -15,7 +15,7 @@ from . import __version__
 from .aggregate import HOUR_MS, Aggregator, local_day_start_ms, make_local_fn
 from .limits import fetch_limits
 from .model import PROVIDERS
-from .pricing import LITELLM_URL, load_rates, rates_for_export
+from .pricing import LITELLM_URL, cache_dir, load_rates, rates_for_export
 from .readers import Env
 from .scan import run_scan
 from .scan_cache import ScanCache
@@ -87,6 +87,8 @@ def build_payload(
     machine_id: Optional[str] = None,
     use_cache: bool = True,
     scan_cache_path: Optional[str] = None,
+    limits_max_age_minutes: float = 0,
+    limits_path: Optional[str] = None,
 ) -> dict:
     env = env or Env()
     started = time.time()
@@ -127,9 +129,7 @@ def build_payload(
     if with_limits:
         if progress:
             progress("Reading subscription limits...")
-        checked = _iso(now_ms)
-        entries = fetch_limits(env, checked, limits_get) if limits_get else fetch_limits(env, checked)
-        limits = {"checkedAt": checked, "providers": entries}
+        limits = read_limits(env, now_ms, limits_get, limits_max_age_minutes, limits_path)
 
     finished = time.time()
     return {
@@ -183,14 +183,61 @@ def write_payload(payload: dict, path: str) -> None:
         raise
 
 
+def limits_cache_path() -> str:
+    return os.path.join(cache_dir(), "limits.json")
+
+
+def _read_cached_limits(path: str, now_ms: int, max_age_ms: int) -> Optional[dict]:
+    """A recent limits snapshot, or None. Holds percents and reset times only, never tokens."""
+    if max_age_ms <= 0:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            cached = json.load(handle)
+        fetched = int(cached["fetchedAtMs"])
+        limits = cached["limits"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(limits, dict) or not 0 <= now_ms - fetched <= max_age_ms:
+        return None
+    return limits
+
+
+def _write_cached_limits(path: str, now_ms: int, limits: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".limits-", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"fetchedAtMs": now_ms, "limits": limits}, handle)
+        os.replace(tmp, path)
+    except OSError:
+        pass  # Without a cache the next run simply asks the provider again.
+
+
+def read_limits(env: Env, now_ms: int, limits_get: Optional[Callable] = None,
+                max_age_minutes: float = 0, path: Optional[str] = None) -> dict:
+    """Limits from the providers, or a snapshot younger than max_age_minutes.
+
+    Background runs (the fleet timer) pass a max age so the providers' usage endpoints are
+    not asked on every 5 minute tick; interactive runs pass 0 and always ask.
+    """
+    path = path or limits_cache_path()
+    cached = _read_cached_limits(path, now_ms, int(max_age_minutes * 60_000))
+    if cached is not None:
+        return cached
+    checked = _iso(now_ms)
+    entries = fetch_limits(env, checked, limits_get) if limits_get else fetch_limits(env, checked)
+    limits = {"checkedAt": checked, "providers": entries}
+    _write_cached_limits(path, now_ms, limits)
+    return limits
+
+
 def refresh_limits_only(path: str, env: Optional[Env] = None, limits_get: Optional[Callable] = None) -> dict:
     """Re-read limits into an existing usage.json without rescanning transcripts."""
     env = env or Env()
     with open(path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
-    checked = _iso(int(time.time() * 1000))
-    entries = fetch_limits(env, checked, limits_get) if limits_get else fetch_limits(env, checked)
-    payload["limits"] = {"checkedAt": checked, "providers": entries}
+    payload["limits"] = read_limits(env, int(time.time() * 1000), limits_get)
     write_payload(payload, path)
     return payload
 
@@ -202,6 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timezone", help="IANA time zone for day buckets (default: this machine's).")
     parser.add_argument("--providers", help="Comma-separated subset of: " + ", ".join(PROVIDERS))
     parser.add_argument("--no-limits", action="store_true", help="Skip the Claude and Codex limits requests.")
+    parser.add_argument("--limits-max-age", type=float, default=0, metavar="MINUTES",
+                        help="Reuse a limits result younger than this many minutes instead of asking "
+                             "the providers again (default 0: always ask). The fleet collector uses this.")
     parser.add_argument("--offline", action="store_true", help="Use cached prices only; make no price request.")
     parser.add_argument("--no-cache", action="store_true",
                         help="Parse every transcript; neither read nor write the per-file scan cache.")
@@ -236,6 +286,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         days=args.days, tz_name=args.timezone, offline=args.offline, providers=providers,
         with_limits=not args.no_limits, progress=progress,
         machine_id=args.machine_id, use_cache=not args.no_cache,
+        limits_max_age_minutes=max(0.0, args.limits_max_age),
     )
     if args.stdout_json:
         json.dump(payload, sys.stdout, separators=(",", ":"))

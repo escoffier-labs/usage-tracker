@@ -178,8 +178,16 @@ machines can price a model differently for a day after a price change.
 optional `timeZone` (an IANA name, so every machine buckets days the same way), `limits`
 (`false` skips the limits request), `offline` (cached prices only) and `cache` (`false` passes
 `--no-cache`; by default each machine keeps its own scan cache in its own user cache directory).
-Top level: `days`
-(default 31), `connectTimeoutSeconds` and `processTimeoutSeconds`.
+Top level: `days` (default 31; the shipped config uses 92 so the 90 day view is complete),
+`timeZone` (applied to every machine without its own, so all `day` values line up with the
+reader's calendar), `limitsMaxAgeMinutes` (default 15: a machine reuses a limits result younger
+than this instead of asking Claude and Codex on every timer tick; `0` always asks),
+`connectTimeoutSeconds` and `processTimeoutSeconds`.
+
+Values are validated before anything runs, because they reach an ssh command line and a cache
+file name: `machineId` must be unique and use letters, digits, `.`, `_` or `-`; `alias`,
+`python` and `timeZone` may not contain spaces or shell syntax. A bad entry stops the whole
+collection with an error naming the field.
 
 For an SSH machine the collector pipes a small bundle of the exporter to `python3 -` over
 `ssh -o BatchMode=yes`. The remote machine needs Python 3.10 or newer and nothing installed.

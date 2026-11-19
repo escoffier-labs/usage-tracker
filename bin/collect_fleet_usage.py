@@ -77,12 +77,31 @@ def validate_machine(machine):
             raise ValueError(f"{machine_id}: invalid {key} {str(value)!r}")
 
 
+DEFAULT_LIMITS_MAX_AGE_MINUTES = 15
+
+
+def with_fleet_defaults(machine, config):
+    """Apply fleet-wide settings a machine entry does not override.
+
+    One time zone for the whole fleet keeps every machine's day buckets aligned with the
+    reader's "today"; otherwise a machine east of the reader writes tomorrow's date early.
+    """
+    merged = dict(machine)
+    if not merged.get("timeZone") and config.get("timeZone"):
+        merged["timeZone"] = config["timeZone"]
+    merged.setdefault("limitsMaxAgeMinutes",
+                      config.get("limitsMaxAgeMinutes", DEFAULT_LIMITS_MAX_AGE_MINUTES))
+    return merged
+
+
 def exporter_args(machine, days):
     args = ["--stdout-json", "--days", str(days), "--machine-id", str(machine["machineId"])]
     if machine.get("timeZone"):
         args += ["--timezone", str(machine["timeZone"])]
     if machine.get("limits") is False:
         args.append("--no-limits")
+    elif int(machine.get("limitsMaxAgeMinutes") or 0) > 0:
+        args += ["--limits-max-age", str(int(machine["limitsMaxAgeMinutes"]))]
     if machine.get("offline"):
         args.append("--offline")
     if machine.get("cache") is False:
@@ -201,9 +220,15 @@ def collect_fleet(config, out_path, root=ROOT, runner=subprocess.run, generated_
     machines = []
     daily = []
     hourly = []
-    rows = config.get("machines") or []
+    if config.get("timeZone") is not None and not TIMEZONE_RE.fullmatch(str(config["timeZone"])):
+        raise ValueError(f"invalid fleet timeZone {str(config['timeZone'])!r}")
+    rows = [with_fleet_defaults(machine, config) for machine in config.get("machines") or []]
+    seen = set()
     for machine in rows:
         validate_machine(machine)
+        if machine["machineId"] in seen:
+            raise ValueError(f"duplicate machineId {machine['machineId']!r}: each machine needs its own id")
+        seen.add(machine["machineId"])
 
     for machine in sorted(rows, key=lambda row: str(row.get("machineId"))):
         machine_id = str(machine["machineId"])

@@ -202,3 +202,26 @@ def test_shipped_config_passes_validation():
         cf.validate_machine(machine)
     cf.validate_machine({"machineId": "win-box", "mode": "ssh", "alias": "me@win-box",
                          "python": "C:\\Python312\\python.exe", "timeZone": "America/New_York"})
+
+
+def test_fleet_time_zone_and_limits_age_reach_every_machine():
+    config = {"timeZone": "America/New_York", "limitsMaxAgeMinutes": 15}
+    plain = cf.with_fleet_defaults({"machineId": "a", "mode": "local"}, config)
+    assert cf.exporter_args(plain, 92)[-4:] == ["--timezone", "America/New_York", "--limits-max-age", "15"]
+    own = cf.with_fleet_defaults({"machineId": "b", "mode": "local", "timeZone": "UTC", "limits": False}, config)
+    assert cf.exporter_args(own, 92)[-3:] == ["--timezone", "UTC", "--no-limits"]
+    always = cf.with_fleet_defaults({"machineId": "c", "mode": "local"}, {"limitsMaxAgeMinutes": 0})
+    assert "--limits-max-age" not in cf.exporter_args(always, 92)
+
+
+def test_duplicate_machine_ids_are_rejected(tmp_path):
+    config = {"machines": [{"machineId": "rocinante", "mode": "local"},
+                           {"machineId": "rocinante", "mode": "ssh", "alias": "rocinante"}]}
+    with pytest.raises(ValueError, match="duplicate machineId"):
+        cf.collect_fleet(config, tmp_path / "fleet-usage.json")
+
+
+def test_shipped_config_covers_the_longest_page_window():
+    config = json.loads((ROOT / "config" / "fleet.json").read_text())
+    assert config["days"] >= 90
+    assert config["timeZone"]
