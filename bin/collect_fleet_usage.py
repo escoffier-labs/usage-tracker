@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
-"""Collect compact usage snapshots locally and through fixed SSH aliases."""
+"""Optional: merge usage from several machines into data/fleet-usage.json.
+
+Runs the usage exporter on each configured machine (locally, or over SSH by piping a small
+bundle of the exporter to `python3 -`, so nothing is installed remotely and no transcripts or
+credentials leave a machine), then merges the per-machine results into one file with a machine
+dimension and each machine's limits snapshot. The schema is documented in
+docs/fleet-usage-schema.md. The single-machine flow (bin/usage_tracker.py) never needs this.
+"""
 
 import argparse
+import base64
+import io
 import json
+import os
+import re
 import subprocess
 import sys
+import tempfile
+import threading
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,28 +26,109 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "config" / "fleet.json"
 DEFAULT_OUT = ROOT / "data" / "fleet-usage.json"
-DEFAULT_EXPORTER = ROOT / "bin" / "export_usage.py"
+
+FLEET_SCHEMA_VERSION = 2
+# The per-machine payload is the data/usage.json produced by usage_tracker.export.
+MACHINE_SCHEMA_VERSION = 1
+DEFAULT_DAYS = 31
+
+# Runs on the remote machine: unpack the bundle from this script, run the exporter, clean up.
+BOOTSTRAP = '''import base64, io, shutil, sys, tempfile, zipfile
+BUNDLE = "{bundle}"
+directory = tempfile.mkdtemp(prefix="usage-tracker-")
+try:
+    zipfile.ZipFile(io.BytesIO(base64.b64decode(BUNDLE))).extractall(directory)
+    sys.path.insert(0, directory)
+    from usage_tracker.export import main
+    code = main(sys.argv[1:])
+finally:
+    shutil.rmtree(directory, ignore_errors=True)
+raise SystemExit(code)
+'''
 
 
-def build_command(machine, exporter_path, since, connect_timeout):
-    machine_id = str(machine["machineId"])
-    export_args = [
-        "--since", str(since),
-        "--snapshot-json",
-        "--machine-id", machine_id,
-    ]
+def build_bundle(root=ROOT):
+    """A zip of the usage_tracker package (Python sources only)."""
+    root = Path(root)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted((root / "usage_tracker").rglob("*.py")):
+            archive.write(path, path.relative_to(root).as_posix())
+    return buffer.getvalue()
+
+
+# Config values end up in a remote shell command (ssh joins its arguments with spaces) and in a
+# local file name, so they are validated instead of quoted: quoting rules differ between the
+# POSIX and Windows shells the fleet runs on.
+MACHINE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+ALIAS_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]{0,252}")
+PYTHON_RE = re.compile(r"[A-Za-z0-9_./\\:-]+")
+TIMEZONE_RE = re.compile(r"[A-Za-z0-9_+/-]+")
+
+
+def validate_machine(machine):
+    """Reject config values that could escape the ssh command line or the cache directory."""
+    machine_id = str(machine.get("machineId") or "")
+    if not MACHINE_ID_RE.fullmatch(machine_id) or machine_id in (".", ".."):
+        raise ValueError(f"invalid machineId {machine_id!r}: use letters, digits, '.', '_' or '-'")
+    if machine.get("mode", "ssh") not in ("local", "ssh"):
+        raise ValueError(f"{machine_id}: mode must be 'local' or 'ssh'")
+    checks = (("alias", ALIAS_RE), ("python", PYTHON_RE), ("timeZone", TIMEZONE_RE))
+    for key, pattern in checks:
+        value = machine.get(key)
+        if value is not None and not pattern.fullmatch(str(value)):
+            raise ValueError(f"{machine_id}: invalid {key} {str(value)!r}")
+
+
+DEFAULT_LIMITS_MAX_AGE_MINUTES = 15
+
+
+def with_fleet_defaults(machine, config):
+    """Apply fleet-wide settings a machine entry does not override.
+
+    One time zone for the whole fleet keeps every machine's day buckets aligned with the
+    reader's "today"; otherwise a machine east of the reader writes tomorrow's date early.
+    """
+    merged = dict(machine)
+    if not merged.get("timeZone") and config.get("timeZone"):
+        merged["timeZone"] = config["timeZone"]
+    merged.setdefault("limitsMaxAgeMinutes",
+                      config.get("limitsMaxAgeMinutes", DEFAULT_LIMITS_MAX_AGE_MINUTES))
+    return merged
+
+
+def exporter_args(machine, days):
+    args = ["--stdout-json", "--days", str(days), "--machine-id", str(machine["machineId"])]
+    if machine.get("timeZone"):
+        args += ["--timezone", str(machine["timeZone"])]
+    if machine.get("limits") is False:
+        args.append("--no-limits")
+    elif int(machine.get("limitsMaxAgeMinutes") or 0) > 0:
+        args += ["--limits-max-age", str(int(machine["limitsMaxAgeMinutes"]))]
+    if machine.get("offline"):
+        args.append("--offline")
+    if machine.get("cache") is False:
+        args.append("--no-cache")
+    return args
+
+
+def build_command(machine, root, days, connect_timeout):
+    """Return (argv, stdin bytes or None) for one machine."""
+    validate_machine(machine)
+    args = exporter_args(machine, days)
     if machine.get("mode") == "local":
-        return [sys.executable, str(exporter_path), *export_args], None
-    alias = str(machine.get("alias") or machine_id)
-    remote_python = str(machine.get("python") or "python")
+        return [sys.executable, str(Path(root) / "bin" / "export_usage.py"), *args], None
+    alias = str(machine.get("alias") or machine["machineId"])
+    remote_python = str(machine.get("python") or "python3")
+    script = BOOTSTRAP.format(bundle=base64.b64encode(build_bundle(root)).decode("ascii"))
     return [
         "ssh",
         "-o", "BatchMode=yes",
         "-o", f"ConnectTimeout={int(connect_timeout)}",
         alias,
         remote_python, "-",
-        *export_args,
-    ], Path(exporter_path).read_bytes()
+        *args,
+    ], script.encode("utf-8")
 
 
 def sanitize_error(value):
@@ -42,12 +137,23 @@ def sanitize_error(value):
     return "".join(ch for ch in text if ch.isprintable())[:240]
 
 
-def write_json_atomic(path, payload):
+def write_json_atomic(path, payload, indent=None):
+    """Write via a fresh private temp file (mode 0600, never a pre-existing path), then rename."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2) + "\n")
-    temporary.replace(path)
+    text = json.dumps(payload, indent=indent, separators=None if indent else (",", ":")) + "\n"
+    fd, temporary = tempfile.mkstemp(dir=str(path.parent), prefix="." + path.name + ".", suffix=".tmp")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def read_json(path):
@@ -57,18 +163,80 @@ def read_json(path):
         return None
 
 
-def validate_machine_snapshot(snapshot, machine_id):
-    if not isinstance(snapshot, dict) or snapshot.get("schemaVersion") != 1:
-        raise ValueError("unsupported machine snapshot schema")
-    if snapshot.get("machineId") != machine_id:
-        raise ValueError("machine snapshot id mismatch")
-    if not isinstance(snapshot.get("hours"), list):
-        raise ValueError("machine snapshot hours missing")
-    return snapshot
+def validate_machine_payload(payload, machine_id):
+    if not isinstance(payload, dict) or payload.get("schemaVersion") != MACHINE_SCHEMA_VERSION:
+        raise ValueError("unsupported machine payload schema")
+    if payload.get("machineId") != machine_id:
+        raise ValueError("machine payload id mismatch")
+    if not isinstance(payload.get("daily"), list) or not isinstance(payload.get("hourly"), list):
+        raise ValueError("machine payload buckets missing")
+    return payload
 
 
-def collect_machine(machine, exporter_path, since, connect_timeout, process_timeout, runner):
-    command, stdin = build_command(machine, exporter_path, since, connect_timeout)
+MAX_STDOUT_BYTES = 32 * 1024 * 1024  # a 92 day machine payload is well under 1 MB
+MAX_STDERR_BYTES = 64 * 1024
+
+
+def bounded_run(command, input=None, stdout=None, stderr=None, timeout=None, check=False):
+    """subprocess.run with a byte cap on both streams.
+
+    A remote machine controls what comes back over ssh, so its output is read incrementally
+    and the child is killed as soon as either stream passes its cap, instead of buffering
+    everything until the timeout.
+    """
+    process = subprocess.Popen(command, stdin=subprocess.PIPE if input is not None else None,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    chunks = {"stdout": bytearray(), "stderr": bytearray()}
+    limits = {"stdout": MAX_STDOUT_BYTES, "stderr": MAX_STDERR_BYTES}
+    overflow = []
+
+    def drain(name, stream):
+        buffer = chunks[name]
+        while True:
+            block = stream.read(65536)
+            if not block:
+                break
+            if len(buffer) + len(block) > limits[name]:
+                overflow.append(name)
+                process.kill()
+                break
+            buffer.extend(block)
+        stream.close()
+
+    def feed():
+        try:
+            process.stdin.write(input)
+        except (BrokenPipeError, OSError):
+            pass
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+
+    threads = [threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
+               threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True)]
+    if input is not None:
+        threads.append(threading.Thread(target=feed, daemon=True))
+    for thread in threads:
+        thread.start()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        for thread in threads:
+            thread.join(timeout=5)
+    if overflow:
+        raise RuntimeError(f"remote {overflow[0]} exceeded {limits[overflow[0]]} bytes; collection stopped")
+    return subprocess.CompletedProcess(command, process.returncode, bytes(chunks["stdout"]),
+                                       bytes(chunks["stderr"]))
+
+
+def collect_machine(machine, root, days, connect_timeout, process_timeout, runner):
+    command, stdin = build_command(machine, root, days, connect_timeout)
     result = runner(
         command,
         input=stdin,
@@ -82,69 +250,105 @@ def collect_machine(machine, exporter_path, since, connect_timeout, process_time
         raise RuntimeError(sanitize_error(stderr))
     stdout = result.stdout.decode(errors="replace") if isinstance(result.stdout, bytes) else result.stdout
     try:
-        snapshot = json.loads(stdout)
+        payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError("exporter returned invalid JSON") from exc
-    return validate_machine_snapshot(snapshot, str(machine["machineId"]))
+    try:
+        return validate_machine_payload(payload, str(machine["machineId"]))
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
-def collect_fleet(config, out_path, exporter_path=None, runner=subprocess.run, generated_at=None):
+def machine_summary(payload, status, error):
+    """Per-machine metadata for the fleet file: everything except the buckets."""
+    return {
+        "machineId": payload["machineId"],
+        "status": status,
+        "error": error,
+        "generatedAt": payload.get("generatedAt"),
+        "timeZone": payload.get("timeZone"),
+        "windowDays": payload.get("windowDays"),
+        "sinceDay": payload.get("sinceDay"),
+        "untilDay": payload.get("untilDay"),
+        "pricing": payload.get("pricing"),
+        "sources": payload.get("sources") or [],
+        "limits": payload.get("limits"),
+    }
+
+
+def fleet_bucket(bucket, machine_id):
+    """A usage.json bucket with the machine dimension. Per-machine session refs become a count."""
+    out = {"machineId": machine_id}
+    for key, value in bucket.items():
+        if key == "sessionRefs":
+            out["sessions"] = len(value)
+        else:
+            out[key] = value
+    return out
+
+
+def collect_fleet(config, out_path, root=ROOT, runner=bounded_run, generated_at=None):
     out_path = Path(out_path)
-    exporter_path = Path(exporter_path or DEFAULT_EXPORTER)
     cache_dir = out_path.parent / "fleet-machines"
-    since = str(config.get("since") or "31d")
+    days = int(config.get("days") or DEFAULT_DAYS)
     connect_timeout = int(config.get("connectTimeoutSeconds") or 10)
-    process_timeout = int(config.get("processTimeoutSeconds") or 120)
+    process_timeout = int(config.get("processTimeoutSeconds") or 300)
     machines = []
+    daily = []
+    hourly = []
+    if config.get("timeZone") is not None and not TIMEZONE_RE.fullmatch(str(config["timeZone"])):
+        raise ValueError(f"invalid fleet timeZone {str(config['timeZone'])!r}")
+    rows = [with_fleet_defaults(machine, config) for machine in config.get("machines") or []]
+    seen = set()
+    for machine in rows:
+        validate_machine(machine)
+        if machine["machineId"] in seen:
+            raise ValueError(f"duplicate machineId {machine['machineId']!r}: each machine needs its own id")
+        seen.add(machine["machineId"])
 
-    for machine in sorted(config.get("machines") or [], key=lambda row: str(row.get("machineId"))):
+    for machine in sorted(rows, key=lambda row: str(row.get("machineId"))):
         machine_id = str(machine["machineId"])
         cache_path = cache_dir / f"{machine_id}.json"
+        status, error = "ok", None
         try:
-            snapshot = collect_machine(
-                machine,
-                exporter_path,
-                since,
-                connect_timeout,
-                process_timeout,
-                runner,
-            )
-            snapshot = {**snapshot, "status": "ok", "error": None}
-            write_json_atomic(cache_path, snapshot)
+            payload = collect_machine(machine, root, days, connect_timeout, process_timeout, runner)
+            write_json_atomic(cache_path, payload)
         except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-            previous = read_json(cache_path)
-            if isinstance(previous, dict):
-                snapshot = {**previous, "status": "stale", "error": sanitize_error(exc)}
-            else:
-                snapshot = {
-                    "schemaVersion": 1,
-                    "machineId": machine_id,
-                    "generatedAt": None,
-                    "records": 0,
-                    "sessions": 0,
-                    "hours": [],
-                    "status": "error",
-                    "error": sanitize_error(exc),
-                }
-        machines.append(snapshot)
+            status, error = "stale", sanitize_error(exc)
+            payload = read_json(cache_path)
+            try:
+                validate_machine_payload(payload, machine_id)
+            except ValueError:
+                payload = None
+            if payload is None:
+                status = "error"
+                payload = {"machineId": machine_id, "daily": [], "hourly": [], "sources": [], "limits": None}
+        machines.append(machine_summary(payload, status, error))
+        daily.extend(fleet_bucket(bucket, machine_id) for bucket in payload["daily"])
+        hourly.extend(fleet_bucket(bucket, machine_id) for bucket in payload["hourly"])
 
+    daily.sort(key=lambda b: (b["day"], b["machineId"], b["provider"], b["model"], b["speed"]))
+    hourly.sort(key=lambda b: (b["hourStart"], b["machineId"], b["provider"], b["model"], b["speed"]))
     manifest = {
-        "schemaVersion": 1,
+        "schemaVersion": FLEET_SCHEMA_VERSION,
+        "usageSchemaVersion": MACHINE_SCHEMA_VERSION,
         "generatedAt": generated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "machines": machines,
+        "daily": daily,
+        "hourly": hourly,
     }
     write_json_atomic(out_path, manifest)
     return manifest
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Collect fleet AI usage snapshots")
+    parser = argparse.ArgumentParser(description="Collect fleet AI usage (optional; needs SSH aliases)")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
-    parser.add_argument("--exporter", default=str(DEFAULT_EXPORTER))
+    parser.add_argument("--root", default=str(ROOT), help="Checkout whose exporter is run and bundled.")
     args = parser.parse_args(argv)
     config = json.loads(Path(args.config).read_text())
-    manifest = collect_fleet(config, args.out, exporter_path=args.exporter)
+    manifest = collect_fleet(config, args.out, root=args.root)
     states = ", ".join(f"{row['machineId']}={row['status']}" for row in manifest["machines"])
     print(f"fleet usage written to {args.out}: {states}", file=sys.stderr)
     return 0 if all(row["status"] != "error" for row in manifest["machines"]) else 1

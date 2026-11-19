@@ -6,7 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-python3 -m compileall -q bin scripts tests
+python3 -m compileall -q bin scripts tests usage_tracker
 python3 scripts/check_frontend.py index.html
 node tests/frontend.test.js
 python3 scripts/scan_repo.py .

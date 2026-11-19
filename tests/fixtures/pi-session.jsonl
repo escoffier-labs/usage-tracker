@@ -1,0 +1,6 @@
+{"type":"session","id":"pi-s1"}
+{"type":"message","id":"m1","timestamp":"2026-11-17T06:00:00Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-5-5","usage":{"input":100,"output":40,"cacheRead":300,"cacheWrite":10,"reasoning":5,"cost":{"total":0}}}}
+{"type":"message","id":"m1","timestamp":"2026-11-17T06:00:00Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-5-5","usage":{"input":100,"output":40,"cost":{"total":0}}}}
+{"type":"message","id":"m2","timestamp":"2026-11-17T06:01:00Z","message":{"role":"toolResult","usage":{"input":7,"output":3}}}
+{"type":"usage","id":"u1","timestamp":"2026-11-17T06:02:00Z","provider":"openai","model":"gpt-6.1-sol","usage":{"input":50,"output":5,"cost":{"total":0.25}}}
+{"type":"message","id":"bad","timestamp":"2026-11-17T06:03:00Z","message":{"role":"assistant","usage":{"input":1}}}

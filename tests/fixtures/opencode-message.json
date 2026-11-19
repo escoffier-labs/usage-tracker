@@ -1,0 +1,1 @@
+{"id": "msg_legacy", "role": "assistant", "sessionID": "oc-s1", "modelID": "deepseek-v4.1-flash", "time": {"created": 1794891600000}, "tokens": {"input": 100, "output": 20, "reasoning": 5, "cache": {"read": 50, "write": 0}}, "cost": 0}

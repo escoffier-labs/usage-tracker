@@ -1,0 +1,39 @@
+{
+ "sample_spec": {
+  "litellm_provider": "x"
+ },
+ "claude-opus-5-5": {
+  "input_cost_per_token": 5e-06,
+  "output_cost_per_token": 2.5e-05,
+  "cache_read_input_token_cost": 5e-07,
+  "cache_creation_input_token_cost": 6.25e-06,
+  "provider_specific_entry": {
+   "fast": 2
+  }
+ },
+ "claude-sonnet-5-5": {
+  "input_cost_per_token": 3e-06,
+  "output_cost_per_token": 1.5e-05,
+  "cache_read_input_token_cost": 3e-07,
+  "cache_creation_input_token_cost": 3.75e-06
+ },
+ "gpt-6.1-sol": {
+  "input_cost_per_token": 2e-06,
+  "output_cost_per_token": 1e-05,
+  "cache_read_input_token_cost": 2e-07,
+  "input_cost_per_token_priority": 4e-06,
+  "output_cost_per_token_priority": 2e-05,
+  "cache_read_input_token_cost_priority": 4e-07
+ },
+ "xai/grok-5-build": {
+  "input_cost_per_token": 1e-06,
+  "output_cost_per_token": 5e-06
+ },
+ "openrouter/other/grok-5-build": {
+  "input_cost_per_token": 9e-06,
+  "output_cost_per_token": 9e-06
+ },
+ "no-output-rate": {
+  "input_cost_per_token": 1e-06
+ }
+}

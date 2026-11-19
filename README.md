@@ -9,143 +9,106 @@
 </p>
 
 <p align="center">
-  <strong>See what your agent sessions actually cost.</strong>
+  <strong>See what your coding agents cost, how many tokens they burn, and how much of your plan is left.</strong>
 </p>
 
 <p align="center">
-  Static page plus a tiny Python exporter: OpenClaw, Claude Code, and Codex session spend. API cost vs OAuth subscription value, per model and per agent. No backend or external runtime assets.
+  A standalone clone of the Usage page in T3 Code (Cost, Tokens and Limits). It needs only Python 3 and a browser. You do not need T3 Code.
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick start</a> &middot; <a href="#what-it-shows">What it shows</a>
+  <a href="#quick-start">Quick start</a> &middot; <a href="#what-it-shows">What it shows</a> &middot; <a href="#privacy">Privacy</a> &middot; <a href="#credits">Credits</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3">
-  <img src="https://img.shields.io/badge/static_page-no_backend-0f766e?style=for-the-badge" alt="Static page, no backend">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/dependencies-none-0f766e?style=for-the-badge" alt="No dependencies">
   <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT license">
 </p>
-
-## Install
-
-```bash
-git clone https://github.com/escoffier-labs/usage-tracker.git
-cd usage-tracker
-# export local session transcripts to data/usage.json, then open the static page
-python3 bin/export_usage.py --since 30d
-python3 -m http.server 5200
-```
-
-## What it does
-
-| | Job | What you get |
-|---|---|---|
-| **Collect** | Local transcripts | OpenClaw, Claude Code, Codex rollouts |
-| **Split** | API vs OAuth value | What you paid vs what subscriptions absorbed |
-| **Chart** | Models and agents | Daily series, per-model bars, session tables |
-| **Stay local** | Static HTML | No backend or third-party requests |
-
 
 ## Quick start
 
 ```bash
 git clone https://github.com/escoffier-labs/usage-tracker.git
 cd usage-tracker
-
-# Build data/usage.json from your OpenClaw + Claude Code sessions
-python3 bin/export_usage.py --since 30d
-
-# Print a compact machine summary for station health or daily briefs
-python3 bin/export_usage.py --since 30d --summary-json
-
-# Serve the page
-python3 -m http.server 5200
+python3 bin/usage_tracker.py
 ```
 
-Open http://localhost:5200.
+That one command reads your local agent history, prices it, starts a server on `http://127.0.0.1:5200/` (this machine only), and opens your browser. The first run over a large history can take a minute. The Refresh button in the page re-runs the scan.
 
-For an always-fresh dataset, install the opt-in user-systemd timer (5 minute refresh):
+Options: `--port 0` picks a free port, `--no-browser` skips opening a window, `--no-export` serves the last export, `--no-limits` never contacts Claude or Codex, `--offline` uses cached prices only, `--days N` sets the history length (default 90).
 
-```bash
-cp bin/usage-tracker-export.service ~/.config/systemd/user/
-cp bin/usage-tracker-export.timer   ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now usage-tracker-export.timer
-```
+To write the data file without serving anything: `python3 bin/export_usage.py` (writes `data/usage.json`; see `--help`).
 
-(Edit the service file's `ExecStart` path to point at wherever you cloned this repo.)
+## What it shows
 
-## Billing classification
+The page follows T3 Code's Usage page.
 
-Each call is classified as `oauth` (subscription burn, billed flat) or `api` (real per-token spend):
+- **Cost, Tokens and Limits** tabs. Cost is an API-rate estimate of what the usage would cost at list prices, not what a subscription charged you.
+- **Past 24h** (hourly), **7**, **30** and **90 days**.
+- A provider filter, per-provider totals and session counts, and a layered per-provider chart with a hover tooltip.
+- Totals: processed, cached and uncached input, output, and cache savings. Share bars for tokens by type, cost by type, and cost by speed (fast or priority premium where the provider bills one).
+- A model table sorted like T3's (cost for Cost, tokens for Tokens) and a per-model dialog with its own trend, cost and token mix, cache hit rate and cost per million tokens.
+- **Model prices**: set your own per-million-token prices for any model, for example one the price table does not know. They are stored in this browser (`localStorage`) and applied in the page. Models with no price show as Unpriced instead of zero.
+- **Limits**: remaining quota bars with the even-spending pace marker and reset times for Claude Code and Codex.
+- Data freshness, price status, and a warning for every source that could not be read in full.
+- Keyboard: `C`, `T`, `L` switch tab; `Ctrl` or `Cmd` + `Shift` + `1` to `4` (or just `1` to `4`) switch period. Light and dark themes follow your system, with a toggle.
 
-- Calls served by a subscription backend are detected from the API id (`openai-chatgpt-responses`, `cli`, `google-gemini-cli`) regardless of provider.
-- Providers in the OAuth set (`openai-codex`, `claude-cli`, `acpx`, `google-gemini-cli` by default) are `oauth`; everything else is `api`.
-- Override per export with `--oauth-providers`. Example: if grok runs on a SuperGrok subscription via device-code OAuth, use `--oauth-providers openai-codex,claude-cli,acpx,google-gemini-cli,xai`.
-- Claude Code records are always `oauth` (Claude Code transcripts carry token counts but no cost; the exporter estimates the API-equivalent cost from a built-in pricing table). Disable the source with `--no-claude-code`, point elsewhere with `--claude-projects PATH`, or include more machines/backups with repeatable `--extra-claude-projects PATH`.
-- Codex CLI rollouts (`~/.codex/sessions` and `~/.codex/archived_sessions`) are always `oauth` (ChatGPT subscription); per-call tokens come from `token_count` events and cost is estimated from the same pricing table. The exporter also reads `~/.codex/state_5.sqlite` for total-only backfill when a Codex thread exists but its rollout records are missing. Disable with `--no-codex`, point elsewhere with `--codex-sessions PATH`, include more machines/backups with repeatable `--extra-codex-sessions PATH`, or add more SQLite backfills with repeatable `--extra-codex-state-db PATH`.
-- Models missing from the pricing table export with `costUsd: null`; the page counts them as "calls missing cost data" instead of silently pricing them at zero.
+### Where the data comes from
 
-## Drag-and-drop fallback
+Missing folders are skipped silently. Locations and parsing rules match T3 Code's readers, including de-duplication of repeated records.
 
-If `data/usage.json` is missing (e.g., you opened the page on a different machine), drop one or more OpenClaw `*.trajectory.jsonl` files or a previously-exported `usage.json` onto the page. Records are parsed client-side and cached in localStorage.
+| Provider | Location | Notes |
+| --- | --- | --- |
+| Claude Code | `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR`) | One request per message even though Claude writes a line per content block. Advisor-model calls are billed to their own model. Fast mode is priced as fast. |
+| Codex | `~/.codex/sessions/**/*.jsonl[.zst]` (or `$CODEX_HOME`) | Cumulative counters validate each request. Forked and copied rollouts are not billed twice. `.zst` files need Python 3.14 or the `zstd` command. |
+| OpenCode | `~/.local/share/opencode` (`opencode*.db`, legacy `storage/message`) | Honors `OPENCODE_DATA_DIR` and `XDG_DATA_HOME`. |
+| Grok Build | `~/.grok/sessions/**/updates.jsonl` (or `$GROK_HOME`) | Uses the cost Grok reports per model. |
+| Antigravity | `~/.gemini/antigravity*` and `~/.config/antigravity` conversation databases | Decodes the protobuf usage rows. `$ANTIGRAVITY_DATA_DIR` overrides. |
+| Pi | `~/.pi/agent/sessions` (or `$PI_CODING_AGENT_SESSION_DIR`) | |
 
-## Architecture
+Prices come from [LiteLLM's model price table](https://github.com/BerriAI/litellm), fetched once a day and cached in your user cache directory (`~/.cache/usage-tracker` on Linux). Offline, the cached copy is used; with no cache, costs show as unknown rather than zero.
 
-![Usage Tracker evidence workflow](docs/assets/usage-evidence-workflow.svg)
+Parsed Claude, Codex, Grok and Pi transcripts are cached per file in the same directory (`usage-scan-cache-v1.json`, ported from T3 Code's scan cache). A file is reused while its size, mtime and inode are unchanged; a changed file is parsed again whole, and entries for deleted files are dropped. The cache holds token counts, model names, session ids and timestamps, never prompts, message text or credentials, and cost is computed after it, so prices and overrides still apply. A warm export gives the same output as a cold one. `python3 bin/export_usage.py --no-cache` ignores it, deleting the file only costs one slow run, and an unwritable cache directory just means no cache. On one machine with about 5,700 transcripts a 30 day export went from 45 s to 3 s.
 
-Generated from [`docs/assets/workflows/usage-evidence.json`](docs/assets/workflows/usage-evidence.json) with `plating workflow`.
+Not ported from T3 Code: Cursor and Muse, and T3's own database lookup that resolves some older Codex service tiers (those requests are billed as standard).
 
-- `bin/export_usage.py` walks `~/.openclaw/agents/*/sessions/*.jsonl` (plain session transcripts; one per session), `~/.claude/projects/*/*.jsonl` (Claude Code), and `~/.codex/**/*.jsonl` (Codex CLI rollouts, including archived sessions), extracts per-call usage, writes a flat array to `data/usage.json`, and uses Codex `state_5.sqlite` only as a total-only missing-thread backfill. OpenClaw's `*.trajectory.jsonl` files are NOT used: they only exist for a fraction of runs and undercount usage by an order of magnitude.
-- Codex profile/account counters may include server-side usage that is not retained in local rollout files or SQLite state. This tracker reports local evidence plus local backfill, not an authoritative account lifetime total.
-- `index.html` fetches `data/usage.json` on load (drag-and-drop fallback), normalizes records into renderer-friendly aggregates, displays.
-- No backend. localStorage caches the last load and your subscription settings.
+### Limits
 
-## Fleet snapshots for Ops Deck
+Limits read the login your tools already saved: Claude Code's OAuth token (`~/.claude/.credentials.json`, or the macOS Keychain item `Claude Code-credentials`) and the ChatGPT token in `~/.codex/auth.json`. If you are not signed in to one of them, it is simply not shown.
 
-`bin/collect_fleet_usage.py` produces the compact source used by Ops Deck. Rocinante runs the exporter locally and streams the same standard-library Python file over SSH stdin to the configured `gandalf` and `shadowfax` aliases. Remote transcripts and credentials stay on their machines, and no remote service or script is installed.
+## Several machines (optional)
 
-Run one collection manually:
-
-```bash
-python3 bin/collect_fleet_usage.py \
-  --config config/fleet.json \
-  --out data/fleet-usage.json
-```
-
-The fleet manifest is written to `data/fleet-usage.json`. Successful per-machine snapshots are retained under `data/fleet-machines/`. If a host is unavailable, the manifest keeps its last successful snapshot with `status: "stale"`; a host with no prior snapshot is reported as `status: "error"`.
-
-Install the five-minute user timer from the canonical `~/repos/usage-tracker` checkout:
+Single-machine use never needs this. To merge usage from more than one machine, `bin/collect_fleet_usage.py` runs the exporter on each machine in `config/fleet.json` (this one, or any SSH alias that has Python 3.10+; nothing is installed remotely) and writes `data/fleet-usage.json` with a machine dimension and each machine's limits. The format is in [docs/fleet-usage-schema.md](docs/fleet-usage-schema.md). `systemd/usage-tracker-fleet.service` and `.timer` run it every five minutes:
 
 ```bash
-systemctl --user link "$PWD/systemd/usage-tracker-fleet.service"
-systemctl --user link "$PWD/systemd/usage-tracker-fleet.timer"
-systemctl --user daemon-reload
+python3 bin/collect_fleet_usage.py            # one collection, uses config/fleet.json
+systemctl --user link "$PWD/systemd/usage-tracker-fleet.service" "$PWD/systemd/usage-tracker-fleet.timer"
 systemctl --user enable --now usage-tracker-fleet.timer
-systemctl --user start usage-tracker-fleet.service
-systemctl --user status usage-tracker-fleet.timer
 ```
 
-The default snapshot range is 31 days. Ops Deck converts the UTC hourly buckets into Today, Yesterday, and trailing 30 calendar days in its configured timezone.
+## Privacy
+
+- The server binds to `127.0.0.1` only, serves just the page and the data file, rejects requests whose `Host` is not loopback, and requires a custom header on the refresh endpoint.
+- Tokens are read into memory, sent only over HTTPS to Anthropic (`api.anthropic.com`) and OpenAI (`chatgpt.com`) respectively, never follow a redirect, and are never written to `data/usage.json`, logs or error messages.
+- The only other request is the public LiteLLM price table. Your transcripts and prompts never leave your machine, and the page loads no CDN or font.
+- `data/usage.json` and `data/fleet-usage.json` are git-ignored and written with mode `0600`. It contains token counts, costs and model names, not conversation text or session ids.
 
 ## Development
 
 ```bash
-python3 -m pip install pytest
-python3 -m pytest tests/   # exporter tests
-node tests/frontend.test.js  # dependency-free frontend behavior checks
-python3 -m http.server 5200  # page
+python -m pytest tests/ -q
+python scripts/check_frontend.py index.html
+node tests/frontend.test.js
+python scripts/scan_repo.py .
 ```
 
-Example multi-machine export:
+No runtime or development dependency besides Python 3 (`pytest` for tests) and Node for the page-logic check. See [AGENTS.md](AGENTS.md) for the architecture.
 
-```bash
-python3 bin/export_usage.py \
-  --extra-claude-projects /tmp/remote-usage/claude/projects \
-  --extra-codex-sessions /tmp/remote-usage/codex \
-  --extra-codex-state-db /tmp/remote-usage/codex/state_5.sqlite
-```
+## Credits
+
+The design, layout and logic are ported from the Usage page of [T3 Code](https://github.com/pingdotgg/t3code) (MIT, Copyright (c) 2026 T3 Tools Inc.). See [NOTICE](NOTICE) for what was ported and the license text.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

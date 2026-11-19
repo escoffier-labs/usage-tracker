@@ -1,7 +1,9 @@
 {
-  "since": "31d",
+  "days": 92,
+  "timeZone": "America/New_York",
+  "limitsMaxAgeMinutes": 15,
   "connectTimeoutSeconds": 10,
-  "processTimeoutSeconds": 120,
+  "processTimeoutSeconds": 300,
   "machines": [
     {
       "machineId": "rocinante",
@@ -10,7 +12,8 @@
     {
       "machineId": "gandalf",
       "mode": "ssh",
-      "alias": "gandalf"
+      "alias": "gandalf",
+      "python": "python"
     },
     {
       "machineId": "shadowfax",
