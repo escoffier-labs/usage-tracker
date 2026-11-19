@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Perform dependency-free structural and JavaScript syntax checks on index.html."""
+"""Dependency-free checks on index.html: structure, no remote assets, JavaScript syntax."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ class DocumentParser(HTMLParser):
         self.scripts: list[str] = []
         self.ids: set[str] = set()
         self.duplicate_ids: set[str] = set()
+        self.remote_assets: list[str] = []
         self._script: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -27,6 +28,11 @@ class DocumentParser(HTMLParser):
             if element_id in self.ids:
                 self.duplicate_ids.add(element_id)
             self.ids.add(element_id)
+        # The page must work offline and send nothing to third parties: no CDN scripts or styles.
+        if tag == "script" and attributes.get("src"):
+            self.remote_assets.append(f"script src={attributes['src']}")
+        if tag == "link" and "stylesheet" in (attributes.get("rel") or ""):
+            self.remote_assets.append(f"stylesheet href={attributes.get('href')}")
         if tag == "script" and "src" not in attributes:
             self._script = []
 
@@ -51,6 +57,8 @@ def check(path: Path, node: str = "node") -> list[str]:
 
     if parser.duplicate_ids:
         errors.append(f"{path}: duplicate id(s): {', '.join(sorted(parser.duplicate_ids))}")
+    if parser.remote_assets:
+        errors.append(f"{path}: external asset(s) are not allowed: {', '.join(parser.remote_assets)}")
     if not parser.scripts:
         errors.append(f"{path}: no inline JavaScript found")
         return errors

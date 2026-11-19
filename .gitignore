@@ -35,3 +35,5 @@ docs/superpowers/
 # OpenClaw files
 .openclaw/
 *.sqlite
+data/fleet-usage.json
+data/fleet-machines/

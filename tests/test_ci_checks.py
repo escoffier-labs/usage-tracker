@@ -23,6 +23,17 @@ class FrontendCheckTests(unittest.TestCase):
             self.assertTrue(any("failed syntax check" in error for error in errors))
 
 
+    def test_external_script_or_stylesheet_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            page = Path(directory, "index.html")
+            page.write_text(
+                '<link rel="stylesheet" href="https://cdn.example/x.css">'
+                '<script src="https://cdn.example/x.js"></script><script>const a = 1;</script>'
+            )
+            errors = check(page)
+            self.assertTrue(any("external asset" in error for error in errors))
+
+
 class SecretScanTests(unittest.TestCase):
     @patch("scripts.scan_repo.tracked_files")
     def test_reports_secret_without_printing_it(self, files):
