@@ -1,12 +1,15 @@
-"""Subscription limits for Claude and Codex.
+"""Subscription limits for Claude, Codex and OpenCode Go.
 
 Claude: GET https://api.anthropic.com/api/oauth/usage with the Claude Code OAuth token
 (~/.claude/.credentials.json, or the macOS Keychain item "Claude Code-credentials").
 Codex: GET https://chatgpt.com/backend-api/wham/usage with the token in ~/.codex/auth.json.
+OpenCode Go: GET https://opencode.ai/zen/go/v1/usage with the Go API key OpenCode saved
+(~/.local/share/opencode/auth.json, OpenCode 2's opencode.db, or $OPENCODE_API_KEY).
 
 Credentials are read into memory only, sent only to the provider's own host over HTTPS with
 redirects refused, and never written to the output, logs or error messages. Window and percent
-presentation follows T3's claudeUsageLimits.ts, codexUsageLimits.ts and usageLimits.ts.
+presentation follows T3's claudeUsageLimits.ts, codexUsageLimits.ts, the OpenCode provider's
+usageLimits.ts and the shared usageLimits.ts.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import datetime as dt
 import json
 import math
 import os
+import sqlite3
 import subprocess
 import sys
 import urllib.error
@@ -27,9 +31,13 @@ from .readers import Env
 
 CLAUDE_URL = "https://api.anthropic.com/api/oauth/usage"
 CODEX_URL = "https://chatgpt.com/backend-api/wham/usage"
+OPENCODE_GO_URL = "https://opencode.ai/zen/go/v1/usage"
+OPENCODE_CONSOLE = "https://opencode.ai/console"
 # The OAuth usage endpoint can answer 429 to clients without a Claude Code user agent.
 CLAUDE_USER_AGENT = "claude-code/2.1.273"
 CODEX_USER_AGENT = "codex_cli_rs/0.1.0"
+# opencode.ai answers 403 to the default Python-urllib user agent.
+OPENCODE_USER_AGENT = "usage-tracker"
 TIMEOUT_S = 10
 SESSION_MINS = 5 * 60
 WEEK_MINS = 7 * 24 * 60
@@ -38,6 +46,10 @@ MONTH_MINS = 30 * 24 * 60
 
 class LimitsError(Exception):
     """A failure whose message is safe to show: it never contains credentials or response bodies."""
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -60,10 +72,11 @@ def http_get_json(url: str, headers: Dict[str, str]) -> dict:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         if error.code in (401, 403):
-            raise LimitsError(f"The provider rejected the saved login (HTTP {error.code}). Sign in again.") from None
+            raise LimitsError(f"The provider rejected the saved login (HTTP {error.code}). Sign in again.",
+                              error.code) from None
         if error.code == 429:
-            raise LimitsError("The provider is rate limiting this request (HTTP 429). Try again soon.") from None
-        raise LimitsError(f"The provider answered HTTP {error.code}.") from None
+            raise LimitsError("The provider is rate limiting this request (HTTP 429). Try again soon.", 429) from None
+        raise LimitsError(f"The provider answered HTTP {error.code}.", error.code) from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise LimitsError("The provider could not be reached.") from None
     except ValueError:
@@ -352,10 +365,111 @@ def fetch_codex_limits(env: Env, now_iso: str, get: Callable = http_get_json) ->
     return codex_response_to_limits(body, now_iso, plan)
 
 
+# ---------------------------------------------------------------------------------------------
+# OpenCode Go (T3's packages/provider-opencode/src/server/usageLimits.ts)
+# ---------------------------------------------------------------------------------------------
+
+def _clean_key(value) -> Optional[str]:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _stored_opencode_key(database_path: str, integration_id: str) -> Optional[str]:
+    """The active key OpenCode 2 stored for an integration, if it belongs to opencode.ai."""
+    if not os.path.isfile(database_path):
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True, timeout=0.1)
+        try:
+            row = conn.execute(
+                "SELECT value FROM credential WHERE integration_id = ? AND active IS NOT 0 "
+                "ORDER BY active DESC, time_created DESC, id DESC LIMIT 1",
+                (integration_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        stored = json.loads(row[0]) if row and isinstance(row[0], str) else None
+    except (sqlite3.Error, ValueError):
+        return None
+    if not isinstance(stored, dict) or stored.get("type") != "key":
+        return None
+    metadata = stored.get("metadata")
+    server = metadata.get("server") if isinstance(metadata, dict) else None
+    if isinstance(server, str) and server.rstrip("/") != OPENCODE_CONSOLE:
+        return None  # a self-hosted console owns its own credentials
+    return _clean_key(stored.get("key"))
+
+
+def read_opencode_go_keys(env: Env) -> List[str]:
+    """Candidate Go keys in T3's order: OpenCode 2's stored keys, then auth.json or the environment."""
+    data_home = env.get("XDG_DATA_HOME") or os.path.join(env.home, ".local", "share")
+    inline = env.get("OPENCODE_AUTH_CONTENT")
+    contents = inline
+    if not contents:
+        try:
+            with open(os.path.join(data_home, "opencode", "auth.json"), "r", encoding="utf-8") as handle:
+                contents = handle.read()
+        except OSError:
+            contents = "{}"
+    try:
+        auth = json.loads(contents)
+    except ValueError:
+        auth = {}
+    go = auth.get("opencode-go") if isinstance(auth, dict) else None
+    go_key = _clean_key(go.get("key")) if isinstance(go, dict) and go.get("type") == "api" else None
+    go_key = go_key or _clean_key(env.get("OPENCODE_API_KEY"))
+    database_file = env.get("OPENCODE_DB") or "opencode.db"
+    stored: List[Optional[str]] = []
+    if not inline and database_file != ":memory:":
+        database_path = os.path.join(data_home, "opencode", database_file)
+        # OpenCode 2 imports auth.json once, so a replaced Go key only exists in the database.
+        stored = [_stored_opencode_key(database_path, "opencode"), _stored_opencode_key(database_path, "opencode-go")]
+    keys: List[str] = []
+    for key in stored + [go_key]:
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def opencode_go_response_to_limits(response, checked_at: str) -> dict:
+    usage = response.get("usage") if isinstance(response, dict) else None
+    windows: List[dict] = []
+    for name, window_id, kind, label, duration in (
+        ("rolling", "go_rolling", "session", "Go · Session", SESSION_MINS),
+        ("weekly", "go_weekly", "weekly", "Go · Weekly", WEEK_MINS),
+        ("monthly", "go_monthly", "monthly", "Go · Monthly", None),
+    ):
+        entry = usage.get(name) if isinstance(usage, dict) else None
+        percent = entry.get("percent") if isinstance(entry, dict) else None
+        resets_at = _iso_from_string(entry.get("resetsAt")) if isinstance(entry, dict) else None
+        if isinstance(percent, bool) or not isinstance(percent, (int, float)) or not math.isfinite(percent) or not resets_at:
+            return unavailable("opencode", checked_at, "probeFailed", "OpenCode Go could not read usage.")
+        windows.append(_window(window_id, kind, label, percent, duration, resets_at))
+    return _entry("opencode", checked_at, windows, plan="OpenCode Go")
+
+
+def fetch_opencode_limits(env: Env, now_iso: str, get: Callable = http_get_json) -> Optional[dict]:
+    keys = read_opencode_go_keys(env)
+    if not keys:
+        return None  # no OpenCode Go key on this machine
+    body = None
+    for key in keys:
+        headers = {"authorization": f"Bearer {key}", "user-agent": OPENCODE_USER_AGENT, "accept": "application/json"}
+        try:
+            body = get(OPENCODE_GO_URL, headers)
+            break
+        except LimitsError as error:
+            if error.status in (401, 403) and key != keys[-1]:
+                continue  # T3 tries the next saved key after a rejected one
+            if error.status == 403:
+                return None  # a valid Zen key without a Go subscription
+            return unavailable("opencode", now_iso, "probeFailed", str(error))
+    return opencode_go_response_to_limits(body, now_iso)
+
+
 def fetch_limits(env: Env, now_iso: str, get: Callable = http_get_json) -> List[dict]:
     """Limits for every provider that has a saved login on this machine."""
     out = []
-    for fetch in (fetch_claude_limits, fetch_codex_limits):
+    for fetch in (fetch_claude_limits, fetch_codex_limits, fetch_opencode_limits):
         result = fetch(env, now_iso, get)
         if result is not None:
             out.append(result)

@@ -164,3 +164,110 @@ def test_credential_requests_ignore_proxy_environment(monkeypatch):
     rebuilt = urllib.request.build_opener(urllib.request.ProxyHandler({}), lim._NoRedirect)
     for opener in (lim._opener, rebuilt):
         assert not any(isinstance(h, urllib.request.ProxyHandler) for h in opener.handlers)
+
+
+# ---------------------------------------------------------------------------------------------
+# OpenCode Go
+# ---------------------------------------------------------------------------------------------
+
+GO_BODY = {"usage": {
+    "rolling": {"status": "ok", "percent": 3, "resetsAt": "2026-11-18T15:41:50.000Z"},
+    "weekly": {"status": "ok", "percent": 27, "resetsAt": "2026-11-23T00:00:00.000Z"},
+    "monthly": {"status": "ok", "percent": 51, "resetsAt": "2026-12-16T00:44:55.000Z"},
+}}
+
+
+def go_home(tmp_path, auth=None, stored=None):
+    if auth is not None:
+        write(tmp_path / ".local" / "share" / "opencode" / "auth.json", auth)
+    if stored is not None:
+        import sqlite3
+        db = tmp_path / ".local" / "share" / "opencode" / "opencode.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE credential (id INTEGER, integration_id TEXT, value TEXT, active INTEGER, time_created INTEGER)")
+        for i, (integration, value) in enumerate(stored):
+            conn.execute("INSERT INTO credential VALUES (?, ?, ?, 1, ?)", (i, integration, json.dumps(value), i))
+        conn.commit()
+        conn.close()
+    return Env({}, str(tmp_path))
+
+
+def test_opencode_go_reads_auth_json_and_maps_windows(tmp_path):
+    env = go_home(tmp_path, {"opencode-go": {"type": "api", "key": SECRET}})
+    calls = []
+
+    def get(url, headers):
+        calls.append((url, headers))
+        return GO_BODY
+
+    entry = limits.fetch_opencode_limits(env, NOW, get)
+    assert calls[0][0] == "https://opencode.ai/zen/go/v1/usage"
+    assert calls[0][1]["authorization"] == f"Bearer {SECRET}"
+    assert calls[0][1]["user-agent"] == limits.OPENCODE_USER_AGENT
+    assert entry["provider"] == "opencode" and entry["plan"] == "OpenCode Go"
+    assert [(w["id"], w["kind"], w["label"], w["usedPercent"]) for w in entry["windows"]] == [
+        ("go_rolling", "session", "Go · Session", 3.0),
+        ("go_weekly", "weekly", "Go · Weekly", 27.0),
+        ("go_monthly", "monthly", "Go · Monthly", 51.0),
+    ]
+    assert entry["windows"][0]["resetsAt"] == "2026-11-18T15:41:50Z"
+    assert "windowDurationMins" not in entry["windows"][2]
+    assert SECRET not in json.dumps(entry)
+
+
+def test_opencode_go_without_a_key_is_skipped(tmp_path):
+    env = go_home(tmp_path, {"opencode": {"type": "api", "key": SECRET}})  # a Zen key alone is not Go
+    assert limits.fetch_opencode_limits(env, NOW, lambda u, h: pytest.fail("no request expected")) is None
+
+
+def test_opencode_go_env_key_is_used_when_auth_json_has_none(tmp_path):
+    env = Env({"OPENCODE_API_KEY": SECRET}, str(tmp_path))
+    assert limits.fetch_opencode_limits(env, NOW, lambda u, h: GO_BODY)["windows"]
+
+
+def test_opencode_go_403_means_no_go_plan(tmp_path):
+    env = go_home(tmp_path, {"opencode-go": {"type": "api", "key": SECRET}})
+
+    def get(url, headers):
+        raise limits.LimitsError("rejected", 403)
+
+    assert limits.fetch_opencode_limits(env, NOW, get) is None
+
+
+def test_opencode_go_tries_the_next_key_after_a_rejection(tmp_path):
+    env = go_home(tmp_path, {"opencode-go": {"type": "api", "key": "auth-json-key"}},
+                  stored=[("opencode", {"type": "key", "key": "old-db-key"})])
+    seen = []
+
+    def get(url, headers):
+        seen.append(headers["authorization"])
+        if headers["authorization"].endswith("old-db-key"):
+            raise limits.LimitsError("rejected", 401)
+        return GO_BODY
+
+    assert limits.fetch_opencode_limits(env, NOW, get)["windows"]
+    assert seen == ["Bearer old-db-key", "Bearer auth-json-key"]
+
+
+def test_opencode_go_ignores_a_self_hosted_console_key(tmp_path):
+    env = go_home(tmp_path, stored=[("opencode-go", {"type": "key", "key": SECRET,
+                                                      "metadata": {"server": "https://console.example.com"}})])
+    assert limits.read_opencode_go_keys(env) == []
+
+
+def test_opencode_go_failure_is_unavailable_without_secrets(tmp_path):
+    env = go_home(tmp_path, {"opencode-go": {"type": "api", "key": SECRET}})
+
+    def get(url, headers):
+        raise limits.LimitsError("The provider answered HTTP 500.", 500)
+
+    entry = limits.fetch_opencode_limits(env, NOW, get)
+    assert entry["unavailable"]["reason"] == "probeFailed" and entry["windows"] == []
+    assert SECRET not in json.dumps(entry)
+
+
+def test_opencode_go_unexpected_body_is_unavailable(tmp_path):
+    env = go_home(tmp_path, {"opencode-go": {"type": "api", "key": SECRET}})
+    entry = limits.fetch_opencode_limits(env, NOW, lambda u, h: {"usage": {"rolling": {"percent": 3}}})
+    assert entry["unavailable"]["message"] == "OpenCode Go could not read usage."

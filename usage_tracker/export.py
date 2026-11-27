@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import json
 import os
@@ -203,6 +204,67 @@ def _read_cached_limits(path: str, now_ms: int, max_age_ms: int) -> Optional[dic
     return limits
 
 
+def _read_cache_file(path: str) -> Optional[dict]:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            cached = json.load(handle)
+        return cached if isinstance(cached, dict) and isinstance(cached.get("limits"), dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+# A failed probe keeps the previous reading for this long, marked stale, before it is dropped.
+LAST_GOOD_MAX_AGE_MS = 24 * HOUR_MS
+
+
+def _carry_last_good(entries: List[dict], previous: Optional[dict], now_ms: int) -> List[dict]:
+    """Replace a provider that failed this time with its last good reading, marked stale."""
+    if not previous:
+        return entries
+    old = {e.get("provider"): e for e in previous["limits"].get("providers") or [] if isinstance(e, dict)}
+    out = []
+    for entry in entries:
+        failure = entry.get("unavailable") or {}
+        prior = old.get(entry.get("provider"))
+        prior_ms = _parse_iso_ms(prior.get("checkedAt")) if prior else None
+        if (failure.get("reason") == "probeFailed" and prior and prior.get("windows")
+                and prior_ms is not None and 0 <= now_ms - prior_ms <= LAST_GOOD_MAX_AGE_MS):
+            entry = {**prior, "stale": True, "error": failure.get("message")}
+        out.append(entry)
+    return out
+
+
+def _parse_iso_ms(value) -> Optional[int]:
+    if not isinstance(value, str):
+        return None
+    try:
+        return int(dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+    except ValueError:
+        return None
+
+
+@contextlib.contextmanager
+def _limits_lock(path: str):
+    """Serialize limit fetches across processes, so concurrent exporters share one provider request."""
+    try:
+        import fcntl
+    except ImportError:  # Windows: no lock, the worst case is one extra request
+        yield
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        handle = open(path + ".lock", "a")
+    except OSError:
+        yield
+        return
+    with handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def _write_cached_limits(path: str, now_ms: int, limits: dict) -> None:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -222,14 +284,54 @@ def read_limits(env: Env, now_ms: int, limits_get: Optional[Callable] = None,
     not asked on every 5 minute tick; interactive runs pass 0 and always ask.
     """
     path = path or limits_cache_path()
-    cached = _read_cached_limits(path, now_ms, int(max_age_minutes * 60_000))
-    if cached is not None:
-        return cached
-    checked = _iso(now_ms)
-    entries = fetch_limits(env, checked, limits_get) if limits_get else fetch_limits(env, checked)
-    limits = {"checkedAt": checked, "providers": entries}
-    _write_cached_limits(path, now_ms, limits)
-    return limits
+    with _limits_lock(path):
+        # Checked under the lock: a run that waited reuses what the other run just fetched.
+        cached = _read_cached_limits(path, now_ms, int(max_age_minutes * 60_000))
+        if cached is not None:
+            return cached
+        checked = _iso(now_ms)
+        entries = fetch_limits(env, checked, limits_get) if limits_get else fetch_limits(env, checked)
+        entries = _carry_last_good(entries, _read_cache_file(path), now_ms)
+        limits = {"checkedAt": checked, "providers": entries}
+        _write_cached_limits(path, now_ms, limits)
+        return limits
+
+
+# The exporter timer asks providers at most every 15 minutes, so a reading older than three
+# of those cycles means collection has stopped.
+LIMITS_STALE_AFTER_S = 45 * 60
+LIMITS_SNAPSHOT_VERSION = 1
+
+
+def limits_snapshot(path: str, now_ms: int) -> dict:
+    """The cached limits as a small read-only document, each provider tagged ok, stale or unavailable.
+
+    Built from the cache the exporter already writes, so reading it never contacts a provider.
+    """
+    cached = _read_cache_file(path)
+    limits = cached["limits"] if cached else {}
+    providers = []
+    for entry in limits.get("providers") or []:
+        if not isinstance(entry, dict):
+            continue
+        checked_ms = _parse_iso_ms(entry.get("checkedAt"))
+        age_s = None if checked_ms is None else max(0, (now_ms - checked_ms) // 1000)
+        if entry.get("unavailable"):
+            status = "unavailable"
+        elif entry.get("stale") or age_s is None or age_s > LIMITS_STALE_AFTER_S:
+            status = "stale"
+        else:
+            status = "ok"
+        providers.append({**entry, "status": status, "ageSeconds": age_s})
+    checked_ms = _parse_iso_ms(limits.get("checkedAt"))
+    return {
+        "schemaVersion": LIMITS_SNAPSHOT_VERSION,
+        "generatedAt": _iso(now_ms),
+        "checkedAt": limits.get("checkedAt"),
+        "ageSeconds": None if checked_ms is None else max(0, (now_ms - checked_ms) // 1000),
+        "staleAfterSeconds": LIMITS_STALE_AFTER_S,
+        "providers": providers,
+    }
 
 
 def refresh_limits_only(path: str, env: Optional[Env] = None, limits_get: Optional[Callable] = None) -> dict:
@@ -248,7 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS, help="Days of history, 1-366 (default 90).")
     parser.add_argument("--timezone", help="IANA time zone for day buckets (default: this machine's).")
     parser.add_argument("--providers", help="Comma-separated subset of: " + ", ".join(PROVIDERS))
-    parser.add_argument("--no-limits", action="store_true", help="Skip the Claude and Codex limits requests.")
+    parser.add_argument("--no-limits", action="store_true", help="Skip the Claude, Codex and OpenCode Go limits requests.")
     parser.add_argument("--limits-max-age", type=float, default=0, metavar="MINUTES",
                         help="Reuse a limits result younger than this many minutes instead of asking "
                              "the providers again (default 0: always ask). The fleet collector uses this.")

@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 - README screenshots of the Cost, Tokens, model detail and Limits views, and `scripts/demo_data.py`, which writes a seeded synthetic `data/usage.json` for regenerating them.
+- OpenCode Go limits (session, weekly and monthly quota), ported from T3 Code's OpenCode reader: the Go key OpenCode saved is sent only to `opencode.ai/zen/go/v1/usage`.
+- `GET /api/limits`: a small read-only snapshot of the cached limits with a per-provider `ok`, `stale` or `unavailable` status, for other local tools. It never contacts a provider.
+- Concurrent exporters share one limits fetch (a file lock on the cache), and a failed provider keeps its last good reading for up to 24 hours, marked stale.
 
 ### Changed
 - README rewritten around the page itself: the shared banner, logo mark and badge header are gone, and each tab has its own section and screenshot.

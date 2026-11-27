@@ -1009,7 +1009,7 @@ function renderLimits() {
   } else {
     const entries = lim.providers.filter((e) => !hidden.has(e.provider));
     if (entries.length === 0) {
-      body = '<div class="empty">No Claude Code or Codex login was found on this machine, so there are no limits to show.<br>Sign in with <code>claude</code> or <code>codex login</code>, then press Refresh.</div>';
+      body = '<div class="empty">No Claude Code, Codex or OpenCode Go login was found on this machine, so there are no limits to show.<br>Sign in with <code>claude</code>, <code>codex login</code> or <code>opencode auth login</code>, then press Refresh.</div>';
     } else {
       body = '<div class="limits">' + entries.map((e) => {
         let inner;
@@ -1032,7 +1032,8 @@ function renderLimits() {
               '<span class="rs tabular">' + (pace ? paceIcon(pace) : '') + '<span class="t">' + esc(resets || '') + '</span></span>';
           }).join('') + '</div>';
         }
-        return '<section class="lprov"><div class="title">' + mark(e.provider, 20) + '<h2>' + esc(PROVIDERS[e.provider].label) + '</h2>' + (e.plan ? '<span class="plan">' + esc(e.plan) + '</span>' : '') + '</div>' + inner + '</section>';
+        return '<section class="lprov"><div class="title">' + mark(e.provider, 20) + '<h2>' + esc(PROVIDERS[e.provider].label) + '</h2>' + (e.plan ? '<span class="plan">' + esc(e.plan) + '</span>' : '') +
+          (e.stale ? '<span class="plan" title="' + esc(e.error || 'The latest read failed.') + '">last good reading, ' + esc(formatAgo(now - Date.parse(e.checkedAt))) + '</span>' : '') + '</div>' + inner + '</section>';
       }).join('') + '</div>';
     }
   }

@@ -26,7 +26,11 @@ def running(tmp_path):
         calls.append(("limits", path))
         return {"generatedAt": "same"}
 
-    app = server.App(str(data), str(page), export_fn=export_fn, limits_fn=limits_fn, export_kwargs={"days": 7})
+    limits_cache = tmp_path / "limits.json"
+    limits_cache.write_text(json.dumps({"fetchedAtMs": 1, "limits": {"checkedAt": "2026-11-18T12:00:00Z", "providers": [
+        {"provider": "claude", "checkedAt": "2026-11-18T12:00:00Z", "windows": [{"id": "seven_day", "usedPercent": 39}]}]}}))
+    app = server.App(str(data), str(page), export_fn=export_fn, limits_fn=limits_fn, export_kwargs={"days": 7},
+                     limits_path=str(limits_cache))
     httpd = server.create_server(app, 0)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -111,3 +115,13 @@ def test_only_one_refresh_at_a_time(running):
 def test_main_serves_existing_data_when_asked(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "default_output", lambda: str(tmp_path / "missing.json"))
     assert server.main(["--no-export", "--no-browser", "--port", "0"]) == 1
+
+
+def test_limits_endpoint_reads_the_cache_and_never_refreshes(running):
+    app, _httpd, calls, _data = running
+    status, body = request(app, "/api/limits")
+    snap = json.loads(body)
+    assert status == 200 and calls == []
+    assert snap["checkedAt"] == "2026-11-18T12:00:00Z"
+    assert [(p["provider"], p["status"]) for p in snap["providers"]] == [("claude", "stale")]
+    assert request(app, "/api/limits", host="evil.example:80")[0] == 403

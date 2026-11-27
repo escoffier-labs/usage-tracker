@@ -48,10 +48,18 @@ A consumer should check `schemaVersion === 2` and refuse anything else.
       "windows": [] } ] }
 ```
 
-Only `claude` and `codex` appear, and only when that machine has a saved login for them.
+Only `claude`, `codex` and `opencode` (the OpenCode Go plan quota, windows `go_rolling`, `go_weekly`
+and `go_monthly`) appear, and only when that machine has a saved login for them. A provider whose
+latest read failed can carry its previous reading with `"stale": true` and an `error` message; its
+`checkedAt` is the time of that previous reading.
 `kind` is `session`, `weekly` or `monthly`; `usedPercent` is 0 to 100; remaining quota is
 `100 - usedPercent`. `resetsAt` and `windowDurationMins` are optional. A provider with
 `unavailable` has no windows. Credentials are never present.
+
+The same limits are served on each machine, without a provider request, at
+`GET http://127.0.0.1:5200/api/limits` by `bin/usage_tracker.py`. That response adds `schemaVersion` (`1`),
+`ageSeconds`, `staleAfterSeconds` (`2700`), and per provider `status` (`ok`, `stale` or
+`unavailable`) and `ageSeconds`.
 
 ## Buckets (`daily[]` and `hourly[]`)
 
