@@ -12,7 +12,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Optional, Sequence
 
-from .export import build_payload, default_output, refresh_limits_only, repo_root, write_payload
+from .export import (build_payload, default_output, limits_cache_path, limits_snapshot, refresh_limits_only,
+                     repo_root, write_payload)
 from .readers import Env
 
 LOOPBACK = "127.0.0.1"
@@ -24,8 +25,9 @@ class App:
 
     def __init__(self, data_path: str, page_path: str, env: Optional[Env] = None,
                  export_fn: Callable = build_payload, limits_fn: Callable = refresh_limits_only,
-                 export_kwargs: Optional[dict] = None):
+                 export_kwargs: Optional[dict] = None, limits_path: Optional[str] = None):
         self.data_path = data_path
+        self.limits_path = limits_path or limits_cache_path()
         self.page_path = page_path
         self.env = env
         self.export_fn = export_fn
@@ -103,6 +105,9 @@ def make_handler(app: App):
                 self._file(app.page_path, "text/html; charset=utf-8")
             elif route == "/data/usage.json":
                 self._file(app.data_path, "application/json; charset=utf-8")
+            elif route == "/api/limits":
+                # Read-only: serves the exporter's cached limits and never asks a provider.
+                self._json(200, limits_snapshot(app.limits_path, int(time.time() * 1000)))
             else:
                 self._json(404, {"error": "Not found."})
 
@@ -137,7 +142,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser window.")
     parser.add_argument("--no-export", action="store_true", help="Serve the existing data/usage.json as is.")
     parser.add_argument("--days", type=int, default=90, help="Days of history (default 90).")
-    parser.add_argument("--no-limits", action="store_true", help="Never request Claude or Codex limits.")
+    parser.add_argument("--no-limits", action="store_true", help="Never request Claude, Codex or OpenCode Go limits.")
     parser.add_argument("--offline", action="store_true", help="Use cached prices only.")
     args = parser.parse_args(argv)
 

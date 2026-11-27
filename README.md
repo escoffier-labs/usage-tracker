@@ -23,7 +23,7 @@ That reads your local history, prices it, serves the page on `http://127.0.0.1:5
 | `--port 0` | Pick a free port |
 | `--no-browser` | Do not open a window |
 | `--no-export` | Serve the last export as is |
-| `--no-limits` | Never contact Claude or Codex for limits |
+| `--no-limits` | Never contact Claude, Codex or OpenCode Go for limits |
 | `--offline` | Use cached prices only |
 | `--days N` | History length (default 90) |
 
@@ -49,7 +49,7 @@ Click any model in the breakdown for its own trend, cost and token mix, cache hi
 
 ### Limits
 
-Remaining quota for Claude Code and Codex, read with the login those tools already saved. The tick on each bar is the even-spending pace for the window, so a bar that ends left of its tick means you are using quota faster than the window refills. The icon beside each reset time says whether you are ahead of, on, or under pace.
+Remaining quota for Claude Code, Codex and OpenCode Go, read with the login those tools already saved. The tick on each bar is the even-spending pace for the window, so a bar that ends left of its tick means you are using quota faster than the window refills. The icon beside each reset time says whether you are ahead of, on, or under pace.
 
 ![Limits tab: Claude Code and Codex session and weekly bars with percent left, pace markers and reset times](docs/assets/screenshots/limits-dark.png)
 
@@ -78,12 +78,16 @@ Not ported from T3 Code: Cursor and Muse, and T3's own database lookup that reso
 
 **Scan cache.** Parsed Claude, Codex, Grok and Pi transcripts are cached per file in the same directory (`usage-scan-cache-v1.json`, ported from T3 Code's scan cache). A file is reused while its size, mtime and inode are unchanged. A changed file is parsed again whole, and entries for deleted files are dropped. The cache holds token counts, model names, session ids and timestamps, never prompts, message text or credentials. Cost is computed after the cache, so price changes and overrides still apply, and a warm export matches a cold one byte for byte. On one machine with about 5,700 transcripts a 30 day export went from 45 s to 3 s. `--no-cache` on `bin/export_usage.py` ignores it.
 
-**Limits** use Claude Code's OAuth token (`~/.claude/.credentials.json`, or the macOS Keychain item `Claude Code-credentials`) and the ChatGPT token in `~/.codex/auth.json`. If you are not signed in to one of them, it is not shown.
+**Limits** use Claude Code's OAuth token (`~/.claude/.credentials.json`, or the macOS Keychain item `Claude Code-credentials`), the ChatGPT token in `~/.codex/auth.json`, and the OpenCode Go API key that `opencode auth login` saved (`~/.local/share/opencode/auth.json`, OpenCode 2's `opencode.db`, or `$OPENCODE_API_KEY`). OpenCode Go shows its plan quota (session, weekly and monthly), which is separate from the transcript spend on the Cost tab. If you are not signed in to one of them, or a Zen key has no Go plan, it is not shown.
+
+Runs share one cached limits reading. The exporter keeps it in your user cache directory (`limits.json`), `--limits-max-age N` reuses one younger than N minutes, and concurrent runs wait for each other instead of asking the providers twice. When a provider fails, its last good reading from the past 24 hours is kept and marked stale.
+
+**Cached limits for other tools.** `GET http://127.0.0.1:5200/api/limits` returns that cached reading without contacting any provider: each provider's windows with `status` (`ok`, `stale` or `unavailable`), `checkedAt` and `ageSeconds`. A reading older than 45 minutes counts as stale. The response is about 1.5 KB.
 
 ## Privacy
 
 - The server binds to `127.0.0.1` only, serves just the page and the data file, rejects requests whose `Host` is not loopback, and requires a custom header on the refresh endpoint.
-- Login tokens are read into memory, sent only over HTTPS to Anthropic (`api.anthropic.com`) and OpenAI (`chatgpt.com`) respectively, never follow a redirect, and are never written to `data/usage.json`, logs or error messages.
+- Login tokens are read into memory, sent only over HTTPS to Anthropic (`api.anthropic.com`), OpenAI (`chatgpt.com`) and OpenCode (`opencode.ai`) respectively, never follow a redirect, and are never written to `data/usage.json`, logs or error messages.
 - The only other request is the public LiteLLM price table. Transcripts and prompts never leave your machine, and the page loads no CDN or font.
 - `data/usage.json` and `data/fleet-usage.json` are git-ignored and written with mode `0600`. They hold token counts, costs and model names, not conversation text or session ids.
 
