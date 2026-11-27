@@ -173,7 +173,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .chart .yaxis { position: relative; width: 56px; height: 224px; flex: none; }
 .chart .yaxis span { position: absolute; right: 0; transform: translateY(-50%); font-size: 10px; color: var(--muted-foreground); }
 .chart .plot { position: relative; flex: 1; height: 224px; }
-.chart svg { width: 100%; height: 100%; display: block; }
+.chart svg:not(.mark) { width: 100%; height: 100%; display: block; }
 .chart .xaxis { display: flex; justify-content: space-between; padding-left: 64px; font-size: 10px; color: var(--muted-foreground); text-transform: uppercase; }
 .tip {
   position: absolute; z-index: 10; min-width: 144px; max-width: 100%; padding: 8px 10px; pointer-events: none;
