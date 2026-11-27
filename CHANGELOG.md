@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- README screenshots of the Cost, Tokens, model detail and Limits views, and `scripts/demo_data.py`, which writes a seeded synthetic `data/usage.json` for regenerating them.
+
 ### Changed
+- README rewritten around the page itself: the shared banner, logo mark and badge header are gone, and each tab has its own section and screenshot.
 - Rewrote the project as a standalone clone of T3 Code's Usage page (Cost, Tokens and Limits) that needs only Python 3 and a browser. Credit and license text: `NOTICE`.
 - `python3 bin/usage_tracker.py` exports, serves the page on 127.0.0.1 and opens the browser; the Refresh button re-runs the scan through a local endpoint.
 - Providers: Claude Code, Codex, OpenCode, Grok, Antigravity and Pi, with T3's file locations and de-duplication rules. Missing directories are skipped silently.
