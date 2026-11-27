@@ -2,7 +2,7 @@
 
 See what your coding agents cost, how many tokens they burn, and how much of your plan is left.
 
-Usage Tracker reads the transcripts that Claude Code, Codex, OpenCode, Grok Build, Antigravity and Pi already write to disk, prices them against public list prices, and shows the result on one local page. It is a standalone port of the Usage page in [T3 Code](https://github.com/pingdotgg/t3code), so you get the same view without running T3 Code. It needs Python 3.10+ and a browser, and installs nothing.
+Usage Tracker reads the transcripts that Claude Code, Codex, OpenCode, Grok Build, Antigravity and Pi already write to disk, prices them against public list prices, and shows the result on one local page. It needs Python 3.10+ and a browser, and installs nothing.
 
 ![Cost tab in dark mode: a $1,496.69 total for 30 days, per-provider totals, a daily cost chart by provider, cost by type and speed, and a model breakdown table](docs/assets/screenshots/cost-dark.png)
 
@@ -61,7 +61,7 @@ Remaining quota for Claude Code, Codex and OpenCode Go, read with the login thos
 
 ## Where the data comes from
 
-Missing folders are skipped silently. Locations and parsing rules match T3 Code's readers, including de-duplication of repeated records.
+Missing folders are skipped silently. Records that appear in more than one file are counted once.
 
 | Provider | Location | Notes |
 | --- | --- | --- |
@@ -72,11 +72,11 @@ Missing folders are skipped silently. Locations and parsing rules match T3 Code'
 | Antigravity | `~/.gemini/antigravity*` and `~/.config/antigravity` conversation databases | Decodes the protobuf usage rows. `$ANTIGRAVITY_DATA_DIR` overrides. |
 | Pi | `~/.pi/agent/sessions` (or `$PI_CODING_AGENT_SESSION_DIR`) | |
 
-Not ported from T3 Code: Cursor and Muse, and T3's own database lookup that resolves some older Codex service tiers (those requests are billed as standard).
+Not supported: Cursor and Muse. Some older Codex requests do not record their service tier and are billed as standard.
 
 **Prices** come from [LiteLLM's model price table](https://github.com/BerriAI/litellm), fetched once a day and cached in your user cache directory (`~/.cache/usage-tracker` on Linux). Offline, the cached copy is used. With no cache at all, costs show as unknown.
 
-**Scan cache.** Parsed Claude, Codex, Grok and Pi transcripts are cached per file in the same directory (`usage-scan-cache-v1.json`, ported from T3 Code's scan cache). A file is reused while its size, mtime and inode are unchanged. A changed file is parsed again whole, and entries for deleted files are dropped. The cache holds token counts, model names, session ids and timestamps, never prompts, message text or credentials. Cost is computed after the cache, so price changes and overrides still apply, and a warm export matches a cold one byte for byte. On one machine with about 5,700 transcripts a 30 day export went from 45 s to 3 s. `--no-cache` on `bin/export_usage.py` ignores it.
+**Scan cache.** Parsed Claude, Codex, Grok and Pi transcripts are cached per file in the same directory (`usage-scan-cache-v1.json`). A file is reused while its size, mtime and inode are unchanged. A changed file is parsed again whole, and entries for deleted files are dropped. The cache holds token counts, model names, session ids and timestamps, never prompts, message text or credentials. Cost is computed after the cache, so price changes and overrides still apply, and a warm export matches a cold one byte for byte. On one machine with about 5,700 transcripts a 30 day export went from 45 s to 3 s. `--no-cache` on `bin/export_usage.py` ignores it.
 
 **Limits** use Claude Code's OAuth token (`~/.claude/.credentials.json`, or the macOS Keychain item `Claude Code-credentials`), the ChatGPT token in `~/.codex/auth.json`, and the OpenCode Go API key that `opencode auth login` saved (`~/.local/share/opencode/auth.json`, OpenCode 2's `opencode.db`, or `$OPENCODE_API_KEY`). OpenCode Go shows its plan quota (session, weekly and monthly), which is separate from the transcript spend on the Cost tab. If you are not signed in to one of them, or a Zen key has no Go plan, it is not shown.
 
